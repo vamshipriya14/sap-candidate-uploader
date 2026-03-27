@@ -185,11 +185,40 @@ class SAPBot:
         time.sleep(0.3)
         ActionChains(self.driver).move_to_element(element).click().perform()
 
+    def _visible_element_for_screenshot(self):
+        selectors = [
+            ".sapMDialog[role='dialog']",
+            ".sapMDialog",
+            "[role='dialog']",
+            ".sapMShell",
+            ".sapMPage",
+            "body",
+        ]
+        for selector in selectors:
+            try:
+                elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+            except Exception:
+                continue
+            for element in reversed(elements):
+                try:
+                    if element.is_displayed() and element.size.get("width", 0) > 0 and element.size.get("height", 0) > 0:
+                        return element
+                except Exception:
+                    continue
+        return None
+
     def _screenshot(self, name):
         self.screenshot_dir.mkdir(parents=True, exist_ok=True)
         self.screenshot_counter += 1
         path = self.screenshot_dir / f"{self.screenshot_counter:02d}_{name}.png"
-        self.driver.save_screenshot(str(path))
+        element = self._visible_element_for_screenshot()
+        if element is not None:
+            try:
+                element.screenshot(str(path))
+            except Exception:
+                self.driver.save_screenshot(str(path))
+        else:
+            self.driver.save_screenshot(str(path))
         print(f"Screenshot saved: {path}")
         return path
 
