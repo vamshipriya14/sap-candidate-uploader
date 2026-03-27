@@ -1,0 +1,10 @@
+.env
+screenshots/
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.pdf
+*.docx
+resumes/
+.streamlit/secrets.toml
