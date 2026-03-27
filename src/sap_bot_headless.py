@@ -18,28 +18,30 @@ def start(self):
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--remote-debugging-port=9222")
+    options.add_argument("--disable-setuid-sandbox")
 
     import shutil
-
-    # Use Google Chrome if available, fallback to chromium
-    chrome_bin = (
-        shutil.which("google-chrome")
-        or shutil.which("google-chrome-stable")
-        or shutil.which("chromium")
-        or shutil.which("chromium-browser")
-    )
-
-    if chrome_bin:
-        options.binary_location = chrome_bin
-
-    # webdriver-manager downloads matching ChromeDriver automatically
-    from webdriver_manager.chrome import ChromeDriverManager
     from selenium.webdriver.chrome.service import Service
 
-    service = Service(ChromeDriverManager().install())
+    # Use system chromium — always matches system chromedriver
+    chrome_bin = shutil.which("chromium") or shutil.which("chromium-browser")
+    chromedriver_bin = shutil.which("chromedriver")
+
+    print(f"Chrome binary: {chrome_bin}")
+    print(f"ChromeDriver binary: {chromedriver_bin}")
+
+    if not chrome_bin:
+        raise Exception("Chromium not found - check packages.txt")
+    if not chromedriver_bin:
+        raise Exception("ChromeDriver not found - check packages.txt")
+
+    options.binary_location = chrome_bin
+    service = Service(chromedriver_bin)  # use system chromedriver directly
+
     self.driver = webdriver.Chrome(service=service, options=options)
     self.wait = WebDriverWait(self.driver, 20)
-    self.driver.get("https://agencysvc44.sapsf.com")    
+    self.driver.get("https://agencysvc44.sapsf.com")
+
 class SAPBot:
     def __init__(self):
         self.driver = None
