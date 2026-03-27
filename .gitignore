@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+record.avi
+*.avi
+*.mp4
+tmp/
+.streamlit/secrets.toml
+screenshots/
+.venv/
+venv/
+*.pdf
+*.docx
+resumes/

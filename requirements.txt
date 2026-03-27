@@ -1,0 +1,11 @@
+streamlit
+selenium
+webdriver-manager
+pdfplumber
+python-docx
+spacy
+phonenumbers
+requests
+python-dotenv
+pandas
+docx2pdf
