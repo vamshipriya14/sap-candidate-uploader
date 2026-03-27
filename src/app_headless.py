@@ -98,7 +98,21 @@ def build_email_drafts(successful_rows, metadata_by_jr, user: dict) -> pd.DataFr
             }
         )
 
-    return pd.DataFrame(drafts)
+    return pd.DataFrame(
+        drafts,
+        columns=[
+            "JR Number",
+            "Job Title",
+            "Client Recruiter Name",
+            "Email To",
+            "CC",
+            "Email From",
+            "Subject",
+            "Email Body",
+            "Profiles",
+            "Files",
+        ],
+    )
 
 
 def build_candidate_details_table(successful_rows, metadata_by_jr) -> pd.DataFrame:
@@ -252,6 +266,19 @@ for index, file in enumerate(files):
 # VALIDATION & TABLE
 # =========================
 df = pd.DataFrame(results)
+df = df.reindex(
+    columns=[
+        "JR Number",
+        "File Name",
+        "First Name",
+        "Last Name",
+        "Email",
+        "Phone",
+        "Country Code",
+        "Country",
+        "Error",
+    ]
+)
 df["Status"] = df.apply(
     lambda row: "Missing Data" if not row["First Name"] or not row["Email"] else "OK",
     axis=1,
