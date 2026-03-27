@@ -21,20 +21,25 @@ def start(self):
 
     import shutil
 
-    # Find chromium binary
+    # Use Google Chrome if available, fallback to chromium
     chrome_bin = (
-        shutil.which("chromium")
+        shutil.which("google-chrome")
+        or shutil.which("google-chrome-stable")
+        or shutil.which("chromium")
         or shutil.which("chromium-browser")
-        or "/usr/bin/chromium"
     )
-    options.binary_location = chrome_bin
 
-    # Let Selenium Manager auto-download matching ChromeDriver
-    # No need to specify Service — Selenium 4.6+ handles it
-    self.driver = webdriver.Chrome(options=options)
+    if chrome_bin:
+        options.binary_location = chrome_bin
+
+    # webdriver-manager downloads matching ChromeDriver automatically
+    from webdriver_manager.chrome import ChromeDriverManager
+    from selenium.webdriver.chrome.service import Service
+
+    service = Service(ChromeDriverManager().install())
+    self.driver = webdriver.Chrome(service=service, options=options)
     self.wait = WebDriverWait(self.driver, 20)
-    self.driver.get("https://agencysvc44.sapsf.com")
-    
+    self.driver.get("https://agencysvc44.sapsf.com")    
 class SAPBot:
     def __init__(self):
         self.driver = None
