@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import shutil
 import time
 
 from selenium import webdriver
@@ -8,7 +9,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from webdriver_manager.chrome import ChromeDriverManager
 
 def start(self):
     options = webdriver.ChromeOptions()
@@ -42,6 +42,17 @@ def start(self):
     self.wait = WebDriverWait(self.driver, 20)
     self.driver.get("https://agencysvc44.sapsf.com")
 
+def _find_chrome_binaries():
+    chrome_bin = (
+        shutil.which("chromium")
+        or shutil.which("chromium-browser")
+        or shutil.which("google-chrome")
+        or shutil.which("google-chrome-stable")
+    )
+    chromedriver_bin = shutil.which("chromedriver")
+    return chrome_bin, chromedriver_bin
+
+
 class SAPBot:
     def __init__(self):
         self.driver = None
@@ -58,17 +69,25 @@ class SAPBot:
         options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1920,1080")
+        options.add_argument("--remote-debugging-port=9222")
+        options.add_argument("--disable-setuid-sandbox")
         options.add_argument("--log-level=3")
         options.add_experimental_option("excludeSwitches", ["enable-logging"])
 
-        import shutil
+        chrome_bin, chromedriver_bin = _find_chrome_binaries()
 
-        if shutil.which("chromium-browser"):
-            options.binary_location = "/usr/bin/chromium-browser"
-            service = Service("/usr/bin/chromedriver")
-        else:
-            service = Service(ChromeDriverManager().install())
+        print(f"Chrome binary: {chrome_bin}")
+        print(f"ChromeDriver binary: {chromedriver_bin}")
+
+        if not chrome_bin:
+            raise Exception("Chromium not found - check packages.txt")
+        if not chromedriver_bin:
+            raise Exception("ChromeDriver not found - check packages.txt")
+
+        options.binary_location = chrome_bin
+        service = Service(chromedriver_bin)
 
         self.driver = webdriver.Chrome(service=service, options=options)
         self.wait = WebDriverWait(self.driver, 20)

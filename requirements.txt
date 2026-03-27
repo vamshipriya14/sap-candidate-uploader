@@ -1,6 +1,5 @@
 streamlit
 selenium>=4.15.0
-webdriver_manager
 pdfplumber
 python-docx
 spacy
