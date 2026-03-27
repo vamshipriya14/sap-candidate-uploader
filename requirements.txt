@@ -1,5 +1,4 @@
 streamlit
-selenium
 webdriver-manager
 pdfplumber
 python-docx
@@ -9,6 +8,7 @@ requests
 python-dotenv
 pandas
 docx2pdf
+selenium>=4.15.0
 numpy==1.26.4
 spacy==3.7.4
 thinc==8.2.5
