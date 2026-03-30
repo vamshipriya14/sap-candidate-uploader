@@ -126,7 +126,7 @@ def build_candidate_details_table(successful_rows, metadata_by_jr) -> pd.DataFra
         candidate_rows.append(
             {
                 "JR Number": jr,
-                "Date": today_text,
+                "Date": row.get("Date", "") or today_text,
                 "Skill": meta.get("job_title", "") or row.get("Skill", ""),
                 "Candidate Name": " ".join(part for part in [first_name, last_name] if part),
                 "Contact Number": row.get("Phone", ""),
@@ -225,6 +225,7 @@ st.info(f"{len(files)} resume(s) ready for processing")
 
 results = []
 progress = st.progress(0)
+today_text = date.today().strftime("%d-%b-%Y")
 
 for index, file in enumerate(files):
     file.seek(0)
@@ -235,27 +236,49 @@ for index, file in enumerate(files):
         data = parse_resume(file)
         results.append(
             {
+                "JR Number": "",
+                "Date": today_text,
+                "Skill": "",
                 "File Name": file.name,
                 "First Name": data.get("first_name", ""),
                 "Last Name": data.get("last_name", ""),
                 "Email": data.get("email", ""),
                 "Phone": data.get("phone", ""),
+                "Current Company": "",
+                "Total Experience": "",
+                "Relevant Experience": "",
+                "Current CTC": "",
+                "Expected CTC": "",
+                "Notice Period": "",
+                "Current Location": "",
+                "Preferred Location": "",
+                "comments/Availability": "",
                 "Country Code": data.get("country_code", "+91"),
                 "Country": data.get("country", "India"),
-                "JR Number": "",
             }
         )
     except Exception as error:
         results.append(
             {
+                "JR Number": "",
+                "Date": today_text,
+                "Skill": "",
                 "File Name": file.name,
                 "First Name": "",
                 "Last Name": "",
                 "Email": "",
                 "Phone": "",
+                "Current Company": "",
+                "Total Experience": "",
+                "Relevant Experience": "",
+                "Current CTC": "",
+                "Expected CTC": "",
+                "Notice Period": "",
+                "Current Location": "",
+                "Preferred Location": "",
+                "comments/Availability": "",
                 "Country Code": "",
                 "Country": "",
-                "JR Number": "",
                 "Error": str(error),
             }
         )
@@ -269,11 +292,22 @@ df = pd.DataFrame(results)
 df = df.reindex(
     columns=[
         "JR Number",
+        "Date",
+        "Skill",
         "File Name",
         "First Name",
         "Last Name",
         "Email",
         "Phone",
+        "Current Company",
+        "Total Experience",
+        "Relevant Experience",
+        "Current CTC",
+        "Expected CTC",
+        "Notice Period",
+        "Current Location",
+        "Preferred Location",
+        "comments/Availability",
         "Country Code",
         "Country",
         "Error",
@@ -556,13 +590,6 @@ if not st.session_state.email_drafts_df.empty:
     jr_filter = str(draft_row.get("JR Number", "")).strip()
     candidate_rows = []
     if not st.session_state.email_candidates_df.empty:
-        st.subheader("Email Candidate Table")
-        st.caption("Only the required candidate columns are listed here.")
-        st.session_state.email_candidates_df = st.data_editor(
-            st.session_state.email_candidates_df,
-            num_rows="dynamic",
-            width="stretch",
-        )
         candidate_rows = st.session_state.email_candidates_df[
             st.session_state.email_candidates_df["JR Number"].fillna("").astype(str).str.strip() == jr_filter
         ].to_dict(orient="records")
