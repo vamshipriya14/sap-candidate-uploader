@@ -914,9 +914,14 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                         # We need access token if it's a Microsoft Graph link
                         headers = {}
                         if "sharepoint.com" in resume_link or "graph.microsoft.com" in resume_link:
+                            import base64
+                            share_token = f"u!{base64.urlsafe_b64encode(resume_link.encode('utf-8')).decode('utf-8').rstrip('=')}"
+                            graph_url = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem/content"
                             headers["Authorization"] = f"Bearer {user['access_token']}"
+                            resp = requests.get(graph_url, headers=headers, timeout=30)
+                        else:
+                            resp = requests.get(resume_link, headers=headers, timeout=30)
                         
-                        resp = requests.get(resume_link, headers=headers, timeout=30)
                         if resp.status_code == 200:
                             file_bytes = resp.content
                             st.session_state.uploaded_files_store[row["File Name"]] = file_bytes
