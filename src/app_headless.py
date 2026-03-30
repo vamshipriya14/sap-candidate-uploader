@@ -340,11 +340,46 @@ st.caption(f"Logged in as **{user['name']}** ({user['email']})")
 # =========================
 # USER SIGNATURE
 # =========================
+def _get_default_signature_template(user_dict: dict) -> str:
+    name = user_dict.get("name", "Name")
+    job_title = user_dict.get("job_title") or "Senior Delivery Head – Talent Acquisition"
+    email = user_dict.get("email", "Email")
+    phone = user_dict.get("phone") or "+91 0000000000"
+    
+    return f"""<table style="font-family: Arial, sans-serif; font-size: 14px; color: #333;">
+  <tr>
+    <td>
+      <strong style="font-size:16px; color:#000;">{name}</strong><br>
+      <span>{job_title}</span><br><br>
+
+      <strong>Phone:</strong> <a href="tel:{phone.replace(' ', '')}">{phone}</a><br>
+      <strong>Email:</strong> <a href="mailto:{email}">{email}</a><br>
+      <strong>Website:</strong> <a href="http://www.volibits.com">www.volibits.com</a><br><br>
+
+      <strong>Address:</strong><br>
+      203, A Wing, The Capital,<br>
+      Baner-Pashan Link Rd, Baner,<br>
+      Pune, MH, India – 411045<br><br>
+
+      <strong>Connect with us:</strong><br>
+      <a href="https://www.linkedin.com/company/volibits/">LinkedIn</a> |
+      <a href="https://www.instagram.com/volibits_llp/">Instagram</a> |
+      <a href="https://www.facebook.com/Volibits/">Facebook</a> |
+      <a href="https://x.com/VolibitsInd">X</a> |
+      <a href="https://www.youtube.com/channel/UCmSl5A2JfguK3PtcUdiI8-A">YouTube</a>
+    </td>
+  </tr>
+</table>"""
+
 if "user_signature" not in st.session_state:
     try:
-        st.session_state.user_signature = get_user_signature(user["email"])
+        db_sig = get_user_signature(user["email"])
+        if not db_sig or not db_sig.strip():
+            st.session_state.user_signature = _get_default_signature_template(user)
+        else:
+            st.session_state.user_signature = db_sig
     except Exception:
-        st.session_state.user_signature = ""
+        st.session_state.user_signature = _get_default_signature_template(user)
 
 with st.expander("📝 Manage Your Email Signature"):
     new_sig = st.text_area(

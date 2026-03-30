@@ -120,7 +120,7 @@ def _fetch_user(access_token: str) -> dict:
     headers = {"Authorization": f"Bearer {access_token}"}
     user = requests.get(
         "https://graph.microsoft.com/v1.0/me"
-        "?$select=displayName,mail,userPrincipalName,jobTitle,department,officeLocation",
+        "?$select=displayName,mail,userPrincipalName,jobTitle,department,officeLocation,mobilePhone,businessPhones",
         headers=headers
     ).json()
 
@@ -137,12 +137,18 @@ def _fetch_user(access_token: str) -> dict:
     # Fetch email signature - skip as it requires MailboxSettings.Read (Admin consent)
     signature = None
     
+    # Try to get phone
+    phone = user.get("mobilePhone")
+    if not phone and user.get("businessPhones"):
+        phone = user.get("businessPhones")[0]
+    
     return {
         "name":       user.get("displayName", ""),
         "email":      user.get("mail") or user.get("userPrincipalName", ""),
         "job_title":  user.get("jobTitle", ""),
         "department": user.get("department", ""),
         "office":     user.get("officeLocation", ""),
+        "phone":      phone or "",
         "photo_b64":  photo_b64,
         "signature":  signature,
     }
