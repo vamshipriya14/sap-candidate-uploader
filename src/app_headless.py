@@ -528,9 +528,6 @@ try:
 except Exception as error:
     st.error(f"Supabase sync failed: {error}")
 
-st.caption("Color preview: red = parser/error rows, green = rows marked for SAP upload.")
-st.dataframe(edited_df.style.apply(_review_row_style, axis=1), width="stretch", hide_index=True)
-
 missing_jr = edited_df[edited_df["JR Number"].fillna("").str.strip() == ""]
 if not missing_jr.empty:
     st.warning(f"{len(missing_jr)} row(s) are missing JR Number - fill them before uploading")
