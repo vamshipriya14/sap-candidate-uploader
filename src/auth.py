@@ -44,8 +44,8 @@ REDIRECT_URI = _secret("ST_AZURE_REDIRECT_URI", default="http://localhost:8501")
 AUTH_URL  = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authorize"
 TOKEN_URL = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
 
-# Only user-level sign-in/profile scopes are needed here.
-SCOPE = "User.Read openid profile email"
+# User-level sign-in plus OneDrive delegated upload scope.
+SCOPE = "User.Read Files.ReadWrite openid profile email"
 
 
 # =========================

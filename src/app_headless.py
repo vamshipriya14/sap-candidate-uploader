@@ -220,10 +220,10 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
             file_bytes = st.session_state.uploaded_files_store.get(file_name)
             if file_bytes:
                 previous_folder = "pending_jr" if "/pending_jr/" in current_link else ""
-                resume_link = upload_resume_to_shared_drive(file_name, file_bytes, subfolder=jr_folder)
+                resume_link = upload_resume_to_shared_drive(user["access_token"], file_name, file_bytes, subfolder=jr_folder)
                 st.session_state.resume_links[file_name] = resume_link
                 if previous_folder and previous_folder != jr_folder:
-                    delete_resume_from_shared_drive(file_name, previous_folder)
+                    delete_resume_from_shared_drive(user["access_token"], file_name, previous_folder)
                 update_resume_record(record_id, row_dict, user, resume_link=resume_link)
         snapshot = _row_snapshot(row_dict)
         if st.session_state.resume_row_snapshots.get(file_name) == snapshot:
@@ -338,63 +338,54 @@ for index, file in enumerate(files):
     st.session_state.uploaded_files_store[file.name] = file_bytes
 
     if file.name not in st.session_state.parsed_resume_rows:
+        row = {
+            "JR Number": "",
+            "Date": today_text,
+            "Skill": "",
+            "File Name": file.name,
+            "First Name": "",
+            "Last Name": "",
+            "Email": "",
+            "Phone": "",
+            "Current Company": "",
+            "Total Experience": "",
+            "Relevant Experience": "",
+            "Current CTC": "",
+            "Expected CTC": "",
+            "Notice Period": "",
+            "Current Location": "",
+            "Preferred Location": "",
+            "Actual Status": "Not Called",
+            "Call Iteration": "First Call",
+            "comments/Availability": "",
+            "Error": "",
+            "Upload to SAP": "Yes",
+        }
         try:
             file.seek(0)
             data = parse_resume(file)
-            row = {
-                "JR Number": "",
-                "Date": today_text,
-                "Skill": "",
-                "File Name": file.name,
-                "First Name": data.get("first_name", ""),
-                "Last Name": data.get("last_name", ""),
-                "Email": data.get("email", ""),
-                "Phone": data.get("phone", ""),
-                "Current Company": "",
-                "Total Experience": "",
-                "Relevant Experience": "",
-                "Current CTC": "",
-                "Expected CTC": "",
-                "Notice Period": "",
-                "Current Location": "",
-                "Preferred Location": "",
-                "Actual Status": "Not Called",
-                "Call Iteration": "First Call",
-                "comments/Availability": "",
-                "Error": "",
-                "Upload to SAP": "Yes",
-            }
-            resume_link = upload_resume_to_shared_drive(file.name, file_bytes, subfolder=jr_folder_name(""))
+            row["First Name"] = data.get("first_name", "")
+            row["Last Name"] = data.get("last_name", "")
+            row["Email"] = data.get("email", "")
+            row["Phone"] = data.get("phone", "")
+        except Exception as error:
+            row["Error"] = str(error)
+
+        try:
+            resume_link = upload_resume_to_shared_drive(
+                user["access_token"],
+                file.name,
+                file_bytes,
+                subfolder=jr_folder_name(""),
+            )
             record = insert_resume_record(row, user, resume_link=resume_link)
             st.session_state.resume_record_ids[file.name] = str(record.get("id", "")).strip()
             st.session_state.resume_links[file.name] = resume_link
-            st.session_state.resume_row_snapshots[file.name] = _row_snapshot(row)
-            st.session_state.parsed_resume_rows[file.name] = row
         except Exception as error:
-            row = {
-                "JR Number": "",
-                "Date": today_text,
-                "Skill": "",
-                "File Name": file.name,
-                "First Name": "",
-                "Last Name": "",
-                "Email": "",
-                "Phone": "",
-                "Current Company": "",
-                "Total Experience": "",
-                "Relevant Experience": "",
-                "Current CTC": "",
-                "Expected CTC": "",
-                "Notice Period": "",
-                "Current Location": "",
-                "Preferred Location": "",
-                "Actual Status": "Not Called",
-                "Call Iteration": "First Call",
-                "comments/Availability": "",
-                "Error": str(error),
-                "Upload to SAP": "Yes",
-            }
-            st.session_state.parsed_resume_rows[file.name] = row
+            row["Error"] = f"{row['Error']} | {error}".strip(" |")
+
+        st.session_state.resume_row_snapshots[file.name] = _row_snapshot(row)
+        st.session_state.parsed_resume_rows[file.name] = row
 
     results.append(dict(st.session_state.parsed_resume_rows[file.name]))
 

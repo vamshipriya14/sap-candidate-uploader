@@ -1,4 +1,3 @@
-import os
 import re
 import base64
 from datetime import datetime, timezone
@@ -9,7 +8,6 @@ from dotenv import load_dotenv
 from streamlit.errors import StreamlitSecretNotFoundError
 
 load_dotenv()
-
 
 def _secret(name: str, *fallback_names: str, default: str = "") -> str:
     secrets_obj = None
@@ -31,21 +29,12 @@ def _secret(name: str, *fallback_names: str, default: str = "") -> str:
             except Exception:
                 pass
 
-    for key in (name, *fallback_names):
-        value = os.getenv(key)
-        if value:
-            return value
-
     return default
 
 
 SUPABASE_URL = _secret("SUPABASE_URL")
 SUPABASE_KEY = _secret("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_KEY")
 SUPABASE_TABLE = _secret("SUPABASE_RESUME_TABLE", default="candidate_resumes")
-
-GRAPH_TENANT_ID = _secret("MICROSOFT_TENANT_ID", "AZURE_TENANT_ID", "ST_AZURE_TENANT_ID")
-GRAPH_CLIENT_ID = _secret("MICROSOFT_CLIENT_ID", "AZURE_CLIENT_ID", "ST_AZURE_CLIENT_ID")
-GRAPH_CLIENT_SECRET = _secret("MICROSOFT_CLIENT_SECRET", "AZURE_CLIENT_SECRET", "ST_AZURE_CLIENT_SECRET")
 
 ONEDRIVE_SHARED_FOLDER_LINK = "https://volibitsllp-my.sharepoint.com/:f:/g/personal/vamshipriya_konda_volibits_com/IgCfyrmNjOPJRJjecem68VEXAedkAWgC7-ebPjHAKOnRFSM?e=X8vYf0"
 
@@ -65,29 +54,6 @@ def _supabase_headers() -> dict:
     }
 
 
-def _graph_app_token() -> str:
-    if not all([GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET]):
-        raise Exception("Missing Microsoft Graph app credentials")
-
-    response = requests.post(
-        f"https://login.microsoftonline.com/{GRAPH_TENANT_ID}/oauth2/v2.0/token",
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        data={
-            "client_id": GRAPH_CLIENT_ID,
-            "client_secret": GRAPH_CLIENT_SECRET,
-            "scope": "https://graph.microsoft.com/.default",
-            "grant_type": "client_credentials",
-        },
-        timeout=30,
-    )
-    response.raise_for_status()
-    data = response.json()
-    token = data.get("access_token")
-    if not token:
-        raise Exception(f"Microsoft token error: {data}")
-    return token
-
-
 def _clean_file_name(name: str) -> str:
     cleaned = re.sub(r"[<>:\"/\\|?*]+", "_", str(name or "").strip())
     return cleaned or "resume"
@@ -98,11 +64,11 @@ def _share_token(url: str) -> str:
     return f"u!{encoded}"
 
 
-def _shared_folder_drive_item(token: str) -> dict:
+def _shared_folder_drive_item(access_token: str) -> dict:
     share_token = _share_token(ONEDRIVE_SHARED_FOLDER_LINK)
     response = requests.get(
         f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {access_token}"},
         timeout=30,
     )
     response.raise_for_status()
@@ -158,21 +124,20 @@ def _resume_db_payload(row: dict, user: dict, resume_link: str | None = None) ->
     return payload
 
 
-def upload_resume_to_shared_drive(file_name: str, content: bytes, subfolder: str) -> str:
+def upload_resume_to_shared_drive(access_token: str, file_name: str, content: bytes, subfolder: str) -> str:
     if not ONEDRIVE_SHARED_FOLDER_LINK:
         raise Exception("Set ONEDRIVE_SHARED_FOLDER_LINK in src/resume_repository.py")
 
-    token = _graph_app_token()
     safe_file_name = _clean_file_name(file_name)
     subfolder = str(subfolder or "").strip().strip("/")
     remote_path = f"{subfolder}/{safe_file_name}" if subfolder else safe_file_name
-    drive_item = _shared_folder_drive_item(token)
+    drive_item = _shared_folder_drive_item(access_token)
 
     response = requests.put(
         f"https://graph.microsoft.com/v1.0/drives/{drive_item['drive_id']}/items/{drive_item['item_id']}:/"
         f"{remote_path}:/content",
         headers={
-            "Authorization": f"Bearer {token}",
+            "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/octet-stream",
         },
         data=content,
@@ -183,20 +148,19 @@ def upload_resume_to_shared_drive(file_name: str, content: bytes, subfolder: str
     return data.get("webUrl", "")
 
 
-def delete_resume_from_shared_drive(file_name: str, subfolder: str) -> None:
+def delete_resume_from_shared_drive(access_token: str, file_name: str, subfolder: str) -> None:
     if not ONEDRIVE_SHARED_FOLDER_LINK:
         raise Exception("Set ONEDRIVE_SHARED_FOLDER_LINK in src/resume_repository.py")
 
-    token = _graph_app_token()
     safe_file_name = _clean_file_name(file_name)
     subfolder = str(subfolder or "").strip().strip("/")
     remote_path = f"{subfolder}/{safe_file_name}" if subfolder else safe_file_name
-    drive_item = _shared_folder_drive_item(token)
+    drive_item = _shared_folder_drive_item(access_token)
 
     response = requests.delete(
         f"https://graph.microsoft.com/v1.0/drives/{drive_item['drive_id']}/items/{drive_item['item_id']}:/"
         f"{remote_path}",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {access_token}"},
         timeout=30,
     )
     if response.status_code not in (204, 404):
