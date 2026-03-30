@@ -1,5 +1,6 @@
 import os
 import streamlit as st
+import time
 import requests
 from urllib.parse import urlencode
 from dotenv import load_dotenv
@@ -45,7 +46,8 @@ AUTH_URL  = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authoriz
 TOKEN_URL = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
 
 # User-level sign-in plus OneDrive delegated upload scope.
-SCOPE = "User.Read Files.ReadWrite openid profile email"
+# offline_access is needed for refresh_token to keep user logged in longer.
+SCOPE = "User.Read Files.ReadWrite openid profile email offline_access"
 
 
 # =========================
@@ -100,6 +102,17 @@ def _exchange_code_for_token(code: str) -> dict:
     return resp.json()
 
 
+def _refresh_access_token(refresh_token: str) -> dict:
+    resp = requests.post(TOKEN_URL, data={
+        "client_id":     CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "scope":         SCOPE,
+        "refresh_token": refresh_token,
+        "grant_type":    "refresh_token",
+    })
+    return resp.json()
+
+
 # =========================
 # 🔹 FETCH USER PROFILE
 # =========================
@@ -146,7 +159,26 @@ def require_login() -> dict:
     """
     # Already logged in this session
     if st.session_state.get("user"):
-        return st.session_state.user
+        user = st.session_state.user
+        # Check if token is about to expire (e.g. within 5 mins)
+        expires_at = st.session_state.get("token_expires_at", 0)
+        refresh_token = st.session_state.get("refresh_token")
+        
+        if time.time() > (expires_at - 300) and refresh_token:
+            # Try to refresh
+            token_data = _refresh_access_token(refresh_token)
+            if "access_token" in token_data:
+                user["access_token"] = token_data["access_token"]
+                st.session_state.user = user
+                st.session_state.token_expires_at = time.time() + token_data.get("expires_in", 3600)
+                if "refresh_token" in token_data:
+                    st.session_state.refresh_token = token_data["refresh_token"]
+            else:
+                # Refresh failed, clear session and force re-login
+                st.session_state.user = None
+                st.rerun()
+        
+        return user
 
     # OAuth callback — code in query params
     code = st.query_params.get("code")
@@ -162,6 +194,8 @@ def require_login() -> dict:
         user["access_token"] = token_data["access_token"]
 
         st.session_state.user = user
+        st.session_state.refresh_token = token_data.get("refresh_token")
+        st.session_state.token_expires_at = time.time() + token_data.get("expires_in", 3600)
 
         # Clean the code from URL so refresh doesn't re-exchange
         st.query_params.clear()
