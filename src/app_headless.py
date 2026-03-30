@@ -342,7 +342,7 @@ st.caption(f"Logged in as **{user['name']}** ({user['email']})")
 # =========================
 def _get_default_signature_template(user_dict: dict) -> str:
     name = user_dict.get("name", "Name")
-    job_title = user_dict.get("job_title") or "Senior Delivery Head – Talent Acquisition"
+    job_title = user_dict.get("job_title") or "job_title"
     email = user_dict.get("email", "Email")
     phone = user_dict.get("phone") or "+91 0000000000"
     
@@ -671,27 +671,27 @@ filter_source_df = db_df.copy() if not db_df.empty else pd.DataFrame(columns=["C
 f1, f2, f3, f4, f5 = st.columns(5)
 with f1:
     candidate_filter = st.multiselect(
-        "Candidate Name (from DB)",
+        "Candidate Name",
         options=sorted(name for name in filter_source_df["Candidate Name"].unique() if name) if not filter_source_df.empty else [],
     )
 with f2:
     jr_filter_values = st.multiselect(
-        "JR Number (from DB)",
+        "JR Number",
         options=sorted(value for value in filter_source_df["JR Number"].fillna("").astype(str).str.strip().unique() if value) if not filter_source_df.empty else [],
     )
 with f3:
     actual_status_filter = st.multiselect(
-        "Call Status (from DB)",
+        "Call Status",
         options=sorted(value for value in filter_source_df["Actual Status"].fillna("").astype(str).str.strip().unique() if value) if not filter_source_df.empty else [],
     )
 with f4:
     call_iteration_filter = st.multiselect(
-        "Call Iteration (from DB)",
+        "Call Iteration",
         options=sorted(value for value in filter_source_df["Call Iteration"].fillna("").astype(str).str.strip().unique() if value) if not filter_source_df.empty else [],
     )
 with f5:
     upload_filter = st.multiselect(
-        "Upload to SAP (from DB)",
+        "Upload to SAP",
         options=sorted(value for value in filter_source_df["Upload to SAP"].fillna("").astype(str).str.strip().unique() if value) if not filter_source_df.empty else [],
     )
 
