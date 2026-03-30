@@ -8,6 +8,7 @@ import streamlit as st
 from auth import require_login, show_user_profile
 from notifier import send_client_email, send_upload_notification
 from resume_parser import parse_resume
+from resume_repository import insert_resume_record, jr_folder_name, update_resume_record, upload_resume_to_shared_drive
 from sap_bot_headless import SAPBot
 from uploader import upload_to_sap
 
@@ -165,6 +166,70 @@ def clear_pending_upload_state() -> None:
     st.session_state.upload_confirmed = False
 
 
+def _review_row_style(row: pd.Series):
+    if str(row.get("Error", "")).strip():
+        return ["background-color: #ffe5e5"] * len(row)
+    if str(row.get("Upload to SAP", "")).strip() == "Yes":
+        return ["background-color: #e8f7e8"] * len(row)
+    return [""] * len(row)
+
+
+def _row_snapshot(row: dict) -> dict:
+    tracked_columns = [
+        "JR Number",
+        "Date",
+        "Skill",
+        "File Name",
+        "First Name",
+        "Last Name",
+        "Email",
+        "Phone",
+        "Current Company",
+        "Total Experience",
+        "Relevant Experience",
+        "Current CTC",
+        "Expected CTC",
+        "Notice Period",
+        "Current Location",
+        "Preferred Location",
+        "Actual Status",
+        "Call Iteration",
+        "comments/Availability",
+        "Error",
+        "Upload to SAP",
+    ]
+    snapshot = {}
+    for column in tracked_columns:
+        value = row.get(column, "")
+        snapshot[column] = "" if pd.isna(value) else str(value).strip()
+    return snapshot
+
+
+def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
+    for _, row in edited_df.iterrows():
+        row_dict = row.to_dict()
+        file_name = str(row_dict.get("File Name", "")).strip()
+        if not file_name:
+            continue
+        record_id = st.session_state.resume_record_ids.get(file_name)
+        if not record_id:
+            continue
+        jr_folder = jr_folder_name(row_dict.get("JR Number", ""))
+        current_link = st.session_state.resume_links.get(file_name, "")
+        if f"/{jr_folder}/" not in current_link:
+            file_bytes = st.session_state.uploaded_files_store.get(file_name)
+            if file_bytes:
+                resume_link = upload_resume_to_shared_drive(file_name, file_bytes, subfolder=jr_folder)
+                st.session_state.resume_links[file_name] = resume_link
+                update_resume_record(record_id, row_dict, user, resume_link=resume_link)
+        snapshot = _row_snapshot(row_dict)
+        if st.session_state.resume_row_snapshots.get(file_name) == snapshot:
+            continue
+        update_resume_record(record_id, row_dict, user, resume_link=st.session_state.resume_links.get(file_name, ""))
+        st.session_state.resume_row_snapshots[file_name] = snapshot
+        st.session_state.parsed_resume_rows[file_name] = dict(row_dict)
+
+
 st.set_page_config(page_title="Resume -> SAP Upload", layout="wide")
 
 # =========================
@@ -203,6 +268,14 @@ if "pending_submit_mode" not in st.session_state:
     st.session_state.pending_submit_mode = False
 if "upload_confirmed" not in st.session_state:
     st.session_state.upload_confirmed = False
+if "parsed_resume_rows" not in st.session_state:
+    st.session_state.parsed_resume_rows = {}
+if "resume_record_ids" not in st.session_state:
+    st.session_state.resume_record_ids = {}
+if "resume_row_snapshots" not in st.session_state:
+    st.session_state.resume_row_snapshots = {}
+if "resume_links" not in st.session_state:
+    st.session_state.resume_links = {}
 
 # =========================
 # FILE UPLOAD & PARSE
@@ -216,6 +289,10 @@ files = st.file_uploader(
 
 if not files:
     st.session_state.uploaded_files_store = {}
+    st.session_state.parsed_resume_rows = {}
+    st.session_state.resume_record_ids = {}
+    st.session_state.resume_row_snapshots = {}
+    st.session_state.resume_links = {}
     reset_email_state()
     st.session_state.last_uploaded_signature = ()
     st.stop()
@@ -232,7 +309,12 @@ files = unique_files
 current_signature = tuple(sorted(file.name for file in files))
 if st.session_state.last_uploaded_signature != current_signature:
     st.session_state.uploaded_files_store = {}
+    st.session_state.parsed_resume_rows = {}
+    st.session_state.resume_record_ids = {}
+    st.session_state.resume_row_snapshots = {}
+    st.session_state.resume_links = {}
     reset_email_state()
+    clear_pending_upload_state()
     st.session_state.last_uploaded_signature = current_signature
 
 st.info(f"{len(files)} resume(s) ready for processing")
@@ -243,13 +325,14 @@ today_text = date.today().strftime("%d-%b-%Y")
 
 for index, file in enumerate(files):
     file.seek(0)
-    st.session_state.uploaded_files_store[file.name] = file.read()
+    file_bytes = file.read()
+    st.session_state.uploaded_files_store[file.name] = file_bytes
 
-    try:
-        file.seek(0)
-        data = parse_resume(file)
-        results.append(
-            {
+    if file.name not in st.session_state.parsed_resume_rows:
+        try:
+            file.seek(0)
+            data = parse_resume(file)
+            row = {
                 "JR Number": "",
                 "Date": today_text,
                 "Skill": "",
@@ -266,17 +349,20 @@ for index, file in enumerate(files):
                 "Notice Period": "",
                 "Current Location": "",
                 "Preferred Location": "",
-                "Upload to SAP": "Yes",
                 "Actual Status": "Not Called",
                 "Call Iteration": "First Call",
                 "comments/Availability": "",
-                "Country Code": data.get("country_code", "+91"),
-                "Country": data.get("country", "India"),
+                "Error": "",
+                "Upload to SAP": "Yes",
             }
-        )
-    except Exception as error:
-        results.append(
-            {
+            resume_link = upload_resume_to_shared_drive(file.name, file_bytes, subfolder=jr_folder_name(""))
+            record = insert_resume_record(row, user, resume_link=resume_link)
+            st.session_state.resume_record_ids[file.name] = str(record.get("id", "")).strip()
+            st.session_state.resume_links[file.name] = resume_link
+            st.session_state.resume_row_snapshots[file.name] = _row_snapshot(row)
+            st.session_state.parsed_resume_rows[file.name] = row
+        except Exception as error:
+            row = {
                 "JR Number": "",
                 "Date": today_text,
                 "Skill": "",
@@ -293,15 +379,15 @@ for index, file in enumerate(files):
                 "Notice Period": "",
                 "Current Location": "",
                 "Preferred Location": "",
-                "Upload to SAP": "Yes",
                 "Actual Status": "Not Called",
                 "Call Iteration": "First Call",
                 "comments/Availability": "",
-                "Country Code": "",
-                "Country": "",
                 "Error": str(error),
+                "Upload to SAP": "Yes",
             }
-        )
+            st.session_state.parsed_resume_rows[file.name] = row
+
+    results.append(dict(st.session_state.parsed_resume_rows[file.name]))
 
     progress.progress((index + 1) / len(files))
 
@@ -327,13 +413,11 @@ df = df.reindex(
         "Notice Period",
         "Current Location",
         "Preferred Location",
-        "Upload to SAP",
         "Actual Status",
         "Call Iteration",
         "comments/Availability",
-        "Country Code",
-        "Country",
         "Error",
+        "Upload to SAP",
     ]
 )
 invalid_count = len(df[(df["First Name"].fillna("").str.strip() == "") | (df["Email"].fillna("").str.strip() == "")])
@@ -384,6 +468,14 @@ edited_df = edited_df[
 if edited_df.empty:
     st.warning("No valid data to upload")
     st.stop()
+
+try:
+    _sync_resume_rows_to_db(edited_df, user)
+except Exception as error:
+    st.error(f"Supabase sync failed: {error}")
+
+st.caption("Color preview: red = parser/error rows, green = rows marked for SAP upload.")
+st.dataframe(edited_df.style.apply(_review_row_style, axis=1), width="stretch", hide_index=True)
 
 missing_jr = edited_df[edited_df["JR Number"].fillna("").str.strip() == ""]
 if not missing_jr.empty:
@@ -489,8 +581,8 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                         "submit": submit_mode,
                         "email": row["Email"],
                         "phone": row["Phone"],
-                        "country_code": row["Country Code"],
-                        "country": row["Country"],
+                        "country_code": "+91",
+                        "country": "India",
                         "resume_file": file_obj,
                     },
                 )
