@@ -6,6 +6,9 @@ from dotenv import load_dotenv
 import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
 
+# Import resume_repository lazily to avoid circular imports if any
+# from resume_repository import ... (not needed here yet)
+
 load_dotenv()
 
 
