@@ -231,16 +231,62 @@ def _row_snapshot(row: dict) -> dict:
 
 
 def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
+    # Build unique (JR Number, Email, Phone) set for all records (DB + current edited)
+    # We use this to prevent duplicates
+    unique_keys = {} # key -> record_id (if exists in DB)
+    
+    # First, collect keys of already known records in the session
+    for f_name, record_id in st.session_state.resume_record_ids.items():
+        row_data = st.session_state.parsed_resume_rows.get(f_name, {})
+        key = (
+            str(row_data.get("JR Number", "")).strip(),
+            str(row_data.get("Email", "")).strip(),
+            str(row_data.get("Phone", "")).strip()
+        )
+        if key[1] or key[2]: # Only if Email or Phone is non-empty
+            unique_keys[key] = record_id
+
     for _, row in edited_df.iterrows():
         row_dict = row.to_dict()
         file_name = str(row_dict.get("File Name", "")).strip()
         if not file_name:
             continue
+        
+        # Check for duplicates (JR Number, Email, Phone)
+        current_key = (
+            str(row_dict.get("JR Number", "")).strip(),
+            str(row_dict.get("Email", "")).strip(),
+            str(row_dict.get("Phone", "")).strip()
+        )
+        
+        # If JR Number is empty, the user wants it to still be treated as a duplicate
+        # if Email and Phone match an existing record WITH empty JR Number.
+        # If multiple records have empty JR and same email/phone, they are duplicates.
+        
+        # If current_key exists in another record, and this is a new record (no ID), skip it
+        existing_id = unique_keys.get(current_key)
         record_id = st.session_state.resume_record_ids.get(file_name)
-        if not record_id:
+        
+        if existing_id and not record_id:
+            # This is a duplicate of an existing record we already know about
+            st.warning(f"Skipping duplicate record for {file_name} (already exists in DB/session)")
             continue
+        
+        if not record_id:
+            # If we don't have an ID for THIS file_name, but we found an ID for the KEY, 
+            # then THIS file_name is a duplicate.
+            if existing_id:
+                 st.warning(f"Record for {file_name} matches an existing record. Linking to existing ID.")
+                 st.session_state.resume_record_ids[file_name] = existing_id
+                 record_id = existing_id
+            else:
+                # Add to unique_keys so subsequent identical rows in this same loop are caught
+                unique_keys[current_key] = "PENDING"
+
         jr_folder = jr_folder_name(row_dict.get("JR Number", ""))
         current_link = st.session_state.resume_links.get(file_name, "")
+        
+        # Check if we need to upload/move the file on shared drive
         if f"/{jr_folder}/" not in current_link:
             file_bytes = st.session_state.uploaded_files_store.get(file_name)
             if file_bytes:
@@ -249,12 +295,26 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
                 st.session_state.resume_links[file_name] = resume_link
                 if previous_folder and previous_folder != jr_folder:
                     delete_resume_from_shared_drive(user["access_token"], file_name, previous_folder)
-                update_resume_record(record_id, row_dict, user, resume_link=resume_link)
+                current_link = resume_link
+
         snapshot = _row_snapshot(row_dict)
-        if st.session_state.resume_row_snapshots.get(file_name) == snapshot:
-            continue
-        update_resume_record(record_id, row_dict, user, resume_link=st.session_state.resume_links.get(file_name, ""))
-        st.session_state.resume_row_snapshots[file_name] = snapshot
+        
+        if record_id and record_id != "PENDING":
+            # Update existing record if changed
+            if st.session_state.resume_row_snapshots.get(file_name) != snapshot:
+                update_resume_record(record_id, row_dict, user, resume_link=current_link)
+                st.session_state.resume_row_snapshots[file_name] = snapshot
+        else:
+            # New record - insert into DB
+            try:
+                record = insert_resume_record(row_dict, user, resume_link=current_link)
+                new_id = str(record.get("id", "")).strip()
+                st.session_state.resume_record_ids[file_name] = new_id
+                st.session_state.resume_row_snapshots[file_name] = snapshot
+                unique_keys[current_key] = new_id
+            except Exception as e:
+                st.error(f"Failed to insert record for {file_name}: {e}")
+
         st.session_state.parsed_resume_rows[file_name] = dict(row_dict)
 
 
@@ -448,14 +508,13 @@ for index, file in enumerate(files):
             row["Error"] = str(error)
 
         try:
+            # Upload to pending_jr initially, but don't insert into DB yet
             resume_link = upload_resume_to_shared_drive(
                 user["access_token"],
                 file.name,
                 file_bytes,
                 subfolder=jr_folder_name(""),
             )
-            record = insert_resume_record(row, user, resume_link=resume_link)
-            st.session_state.resume_record_ids[file.name] = str(record.get("id", "")).strip()
             st.session_state.resume_links[file.name] = resume_link
         except Exception as error:
             row["Error"] = f"{row['Error']} | {error}".strip(" |")
@@ -463,9 +522,16 @@ for index, file in enumerate(files):
         st.session_state.resume_row_snapshots[file.name] = _row_snapshot(row)
         st.session_state.parsed_resume_rows[file.name] = row
 
+    # Add to results list for rendering the table
     results.append(dict(st.session_state.parsed_resume_rows[file.name]))
 
     progress.progress((index + 1) / len(files))
+
+# Include manually added records from DB that are not in the results list (files list)
+all_file_names_in_results = {r["File Name"] for r in results}
+for f_name, row_data in st.session_state.parsed_resume_rows.items():
+    if f_name not in all_file_names_in_results:
+        results.append(dict(row_data))
 
 # =========================
 # VALIDATION & TABLE
@@ -775,6 +841,13 @@ else:
     st.caption("Dry run mode - upload will connect to SAP, fill the form, cancel, and close automatically.")
 
 if st.button("Upload", type="primary", width="stretch"):
+    # Ensure all changes are saved to DB before starting SAP upload
+    try:
+        _sync_resume_rows_to_db(edited_df, user)
+    except Exception as error:
+        st.error(f"Sync to database failed before upload: {error}")
+        st.stop()
+
     reset_email_state()
     upload_rows = edited_df[
         (edited_df["Upload to SAP"].fillna("").str.strip() == "Yes")
