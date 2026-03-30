@@ -17,7 +17,7 @@ from resume_repository import (
     jr_folder_name,
     save_user_signature,
     update_resume_record,
-    upload_resume_to_shared_drive,
+    upload_resume_to_shared_drive
 )
 from sap_bot_headless import SAPBot
 from uploader import upload_to_sap

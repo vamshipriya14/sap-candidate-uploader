@@ -228,6 +228,7 @@ def fetch_all_resume_records() -> list[dict]:
 
 
 def get_user_signature(email: str) -> str:
+    """Retrieves the stored signature for a user."""
     if not email:
         return ""
     response = requests.get(
