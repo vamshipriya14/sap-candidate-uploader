@@ -307,7 +307,11 @@ def send_client_email(user: dict, draft: dict, candidate_rows: list, attachments
         # Check if signature is plain text or HTML. Simple heuristic: look for tags.
         if "<" not in user_signature:
              user_signature = _html_escape(user_signature).replace("\n", "<br>")
-        body_html += f"<br><br>{user_signature}"
+        # If the body already ends with "Regards,", we don't want a huge gap.
+        if body_html.strip().endswith("Regards,") or body_html.strip().endswith("Regards"):
+            body_html += f"<br>{user_signature}"
+        else:
+            body_html += f"<br><br>{user_signature}"
 
     html = f"""
     <html><body style='font-family:Segoe UI,Arial,sans-serif;color:#222'>

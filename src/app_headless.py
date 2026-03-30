@@ -75,8 +75,7 @@ def build_email_body(recruiter_name: str, job_title: str, sender_name: str) -> s
     return (
         f"Hi {recruiter_name or 'Team'},\n\n"
         f"Please find attached profiles for {job_title}\n\n"
-        f"Regards,\n"
-        f"{sender_name}"
+        f"Regards,"
     )
 
 
@@ -346,27 +345,28 @@ def _get_default_signature_template(user_dict: dict) -> str:
     email = user_dict.get("email", "Email")
     phone = user_dict.get("phone") or "+91 0000000000"
     
-    return f"""<table style="font-family: Arial, sans-serif; font-size: 14px; color: #333;">
+    return f"""<table style="font-family: Arial, sans-serif; font-size: 14px; color: #333; border-collapse: collapse;">
   <tr>
-    <td>
-      <strong style="font-size:16px; color:#000;">{name}</strong><br>
-      <span>{job_title}</span><br><br>
+    <td style="padding-right: 20px; border-right: 2px solid #ed1c24;">
+      <img src="https://volibits.com/wp-content/uploads/2021/10/volibits-logo-red.png" alt="Volibits Logo" width="120">
+    </td>
+    <td style="padding-left: 20px;">
+      <strong style="font-size:18px; color:#ed1c24;">{name}</strong><br>
+      <span style="color: #666; font-style: italic;">{job_title}</span><br><br>
 
-      <strong>Phone:</strong> <a href="tel:{phone.replace(' ', '')}">{phone}</a><br>
-      <strong>Email:</strong> <a href="mailto:{email}">{email}</a><br>
-      <strong>Website:</strong> <a href="http://www.volibits.com">www.volibits.com</a><br><br>
+      <strong style="color: #ed1c24;">Phone:</strong> <a href="tel:{phone.replace(' ', '')}" style="text-decoration: none; color: #333;">{phone}</a><br>
+      <strong style="color: #ed1c24;">Email:</strong> <a href="mailto:{email}" style="text-decoration: none; color: #333;">{email}</a><br>
+      <strong style="color: #ed1c24;">Website:</strong> <a href="http://www.volibits.com" style="text-decoration: none; color: #333;">www.volibits.com</a><br><br>
 
-      <strong>Address:</strong><br>
-      203, A Wing, The Capital,<br>
-      Baner-Pashan Link Rd, Baner,<br>
-      Pune, MH, India – 411045<br><br>
+      <strong style="color: #ed1c24;">Address:</strong><br>
+      <span style="color: #333;">203, A Wing, The Capital, Baner-Pashan Link Rd, Baner, Pune, MH, India – 411045</span><br><br>
 
-      <strong>Connect with us:</strong><br>
-      <a href="https://www.linkedin.com/company/volibits/">LinkedIn</a> |
-      <a href="https://www.instagram.com/volibits_llp/">Instagram</a> |
-      <a href="https://www.facebook.com/Volibits/">Facebook</a> |
-      <a href="https://x.com/VolibitsInd">X</a> |
-      <a href="https://www.youtube.com/channel/UCmSl5A2JfguK3PtcUdiI8-A">YouTube</a>
+      <strong style="color: #ed1c24;">Connect with us:</strong><br>
+      <a href="https://www.linkedin.com/company/volibits/" style="text-decoration: none; color: #ed1c24;">LinkedIn</a> |
+      <a href="https://www.instagram.com/volibits_llp/" style="text-decoration: none; color: #ed1c24;">Instagram</a> |
+      <a href="https://www.facebook.com/Volibits/" style="text-decoration: none; color: #ed1c24;">Facebook</a> |
+      <a href="https://x.com/VolibitsInd" style="text-decoration: none; color: #ed1c24;">X</a> |
+      <a href="https://www.youtube.com/channel/UCmSl5A2JfguK3PtcUdiI8-A" style="text-decoration: none; color: #ed1c24;">YouTube</a>
     </td>
   </tr>
 </table>"""
