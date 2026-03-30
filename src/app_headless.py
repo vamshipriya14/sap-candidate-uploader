@@ -553,7 +553,6 @@ with st.form("resume_editor_form"):
         num_rows="dynamic",
         width="stretch",
         disabled=["File Name"],
-        pinned_columns=["JR Number", "Date", "Skill", "First Name"],
         column_config={
             "JR Number": st.column_config.SelectboxColumn(
                 "JR Number",
