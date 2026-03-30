@@ -225,3 +225,35 @@ def fetch_all_resume_records() -> list[dict]:
     )
     response.raise_for_status()
     return response.json()
+
+
+def get_user_signature(email: str) -> str:
+    if not email:
+        return ""
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/user_signatures?user_email=eq.{email}&select=signature",
+        headers=_supabase_headers(),
+        timeout=10,
+    )
+    if response.status_code == 200:
+        data = response.json()
+        if data:
+            return data[0].get("signature", "")
+    return ""
+
+
+def save_user_signature(email: str, signature: str) -> None:
+    if not email:
+        return
+    payload = {
+        "user_email": email,
+        "signature": signature,
+        "updated_at": _now_iso(),
+    }
+    response = requests.post(
+        f"{SUPABASE_URL}/rest/v1/user_signatures",
+        headers={**_supabase_headers(), "Prefer": "resolution=merge-duplicates"},
+        json=payload,
+        timeout=10,
+    )
+    response.raise_for_status()

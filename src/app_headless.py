@@ -12,8 +12,10 @@ from resume_repository import (
     delete_resume_from_shared_drive,
     fetch_active_jr_master,
     fetch_all_resume_records,
+    get_user_signature,
     insert_resume_record,
     jr_folder_name,
+    save_user_signature,
     update_resume_record,
     upload_resume_to_shared_drive,
 )
@@ -334,6 +336,30 @@ show_user_profile(user)
 
 st.title("Resume -> SAP Upload")
 st.caption(f"Logged in as **{user['name']}** ({user['email']})")
+
+# =========================
+# USER SIGNATURE
+# =========================
+if "user_signature" not in st.session_state:
+    try:
+        st.session_state.user_signature = get_user_signature(user["email"])
+    except Exception:
+        st.session_state.user_signature = ""
+
+with st.expander("📝 Manage Your Email Signature"):
+    new_sig = st.text_area(
+        "Your Signature (Text or HTML)",
+        value=st.session_state.user_signature,
+        height=150,
+        help="This signature will be appended to the emails sent to clients.",
+    )
+    if st.button("Save Signature"):
+        try:
+            save_user_signature(user["email"], new_sig)
+            st.session_state.user_signature = new_sig
+            st.success("Signature saved successfully!")
+        except Exception as e:
+            st.error(f"Failed to save signature: {e}")
 
 try:
     jr_master_rows = fetch_active_jr_master()
@@ -1179,9 +1205,9 @@ if not st.session_state.email_drafts_df.empty:
         "",
         body_text,
     ]
-    if user.get("signature"):
+    if user.get("signature") or st.session_state.get("user_signature"):
         preview_lines.append("\n--- Signature ---")
-        preview_lines.append(user["signature"])
+        preview_lines.append(user.get("signature") or st.session_state.get("user_signature"))
 
     st.subheader("Email Preview")
     st.text("\n".join(preview_lines))
@@ -1195,8 +1221,14 @@ if not st.session_state.email_drafts_df.empty:
             file_bytes = st.session_state.uploaded_files_store.get(file_name)
             if file_bytes:
                 attachment_items.append({"name": file_name, "content": file_bytes})
+        
+        # Ensure signature is in user dict for send_client_email
+        user_to_send = dict(user)
+        if st.session_state.get("user_signature"):
+            user_to_send["signature"] = st.session_state["user_signature"]
+
         ok, msg = send_client_email(
-            user=user,
+            user=user_to_send,
             draft=draft_row,
             candidate_rows=candidate_rows,
             attachments=attachment_items,
