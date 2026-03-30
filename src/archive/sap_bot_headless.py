@@ -1111,7 +1111,7 @@ class SAPBot:
         return {
             "jr_number": req_id,
             "job_title": details.get("title", "").strip() or panel_fallback.get("title", "").strip(),
-            "client_recruiter_name": final_name,
+            "client_recruiter": final_name,
             "email_to": final_email,
             "contact_card_opened": contact_opened,
         }

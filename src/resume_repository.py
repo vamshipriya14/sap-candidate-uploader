@@ -167,6 +167,22 @@ def delete_resume_from_shared_drive(access_token: str, file_name: str, subfolder
         response.raise_for_status()
 
 
+def fetch_active_jr_master() -> list[dict]:
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/jr_master?select=jr_no,client_recruiter,skill_name,jr_status",
+        headers=_supabase_headers(),
+        timeout=30,
+    )
+    response.raise_for_status()
+    rows = response.json()
+    active_rows = []
+    for row in rows:
+        status = str(row.get("jr_status", "")).strip().lower()
+        if status == "active":
+            active_rows.append(row)
+    return active_rows
+
+
 def insert_resume_record(row: dict, user: dict, resume_link: str) -> dict:
     payload = _resume_db_payload(row, user, resume_link=resume_link)
     payload["created_by"] = str(user.get("email", "")).strip()

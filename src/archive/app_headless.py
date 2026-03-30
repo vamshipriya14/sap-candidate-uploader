@@ -75,7 +75,7 @@ def build_email_drafts(successful_rows, metadata_by_jr, user: dict) -> pd.DataFr
     for jr, rows in grouped.items():
         meta = metadata_by_jr.get(jr, {})
         job_title = meta.get("job_title", "")
-        recruiter_name = meta.get("client_recruiter_name", "")
+        recruiter_name = meta.get("client_recruiter", "")
         drafts.append(
             {
                 "JR Number": jr,

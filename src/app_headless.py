@@ -8,7 +8,14 @@ import streamlit as st
 from auth import require_login, show_user_profile
 from notifier import send_client_email, send_upload_notification
 from resume_parser import parse_resume
-from resume_repository import delete_resume_from_shared_drive, insert_resume_record, jr_folder_name, update_resume_record, upload_resume_to_shared_drive
+from resume_repository import (
+    delete_resume_from_shared_drive,
+    fetch_active_jr_master,
+    insert_resume_record,
+    jr_folder_name,
+    update_resume_record,
+    upload_resume_to_shared_drive,
+)
 from sap_bot_headless import SAPBot
 from uploader import upload_to_sap
 
@@ -83,7 +90,7 @@ def build_email_drafts(successful_rows, metadata_by_jr, user: dict) -> pd.DataFr
     for jr, rows in grouped.items():
         meta = metadata_by_jr.get(jr, {})
         job_title = meta.get("job_title", "")
-        recruiter_name = meta.get("client_recruiter_name", "")
+        recruiter_name = meta.get("client_recruiter", "")
         drafts.append(
             {
                 "JR Number": jr,
@@ -249,6 +256,34 @@ show_user_profile(user)
 
 st.title("Resume -> SAP Upload")
 st.caption(f"Logged in as **{user['name']}** ({user['email']})")
+
+try:
+    jr_master_rows = fetch_active_jr_master()
+except Exception as error:
+    jr_master_rows = []
+    st.warning(f"JR master lookup unavailable: {error}")
+
+jr_master_by_number = {}
+for row in jr_master_rows:
+    jr_number = str(row.get("jr_no", "")).strip()
+    if jr_number:
+        jr_master_by_number[jr_number] = row
+
+active_jr_numbers = sorted(jr_master_by_number.keys())
+active_skills = sorted(
+    {
+        str(row.get("skill_name", "")).strip()
+        for row in jr_master_rows
+        if str(row.get("skill_name", "")).strip()
+    }
+)
+active_recruiters = sorted(
+    {
+        str(row.get("client_recruiter", "")).strip()
+        for row in jr_master_rows
+        if str(row.get("client_recruiter", "")).strip()
+    }
+)
 
 # =========================
 # SESSION STATE INIT
@@ -467,50 +502,67 @@ if call_iteration_filter:
 if upload_filter:
     filtered_df = filtered_df[filtered_df["Upload to SAP"].fillna("").astype(str).str.strip().isin(upload_filter)]
 
-edited_df = st.data_editor(
-    filtered_df.drop(columns=["Candidate Name"]),
-    num_rows="dynamic",
-    width="stretch",
-    disabled=["File Name"],
-    column_config={
-        "Actual Status": st.column_config.SelectboxColumn(
-            "Actual Status",
-            options=[
-                "Not Called",
-                "Called",
-                "No Answer",
-                "Interested",
-                "Not Interested",
-                "Wrong Number",
-                "Call Back Later",
-                "Interview Scheduled",
-            ],
-        ),
-        "Upload to SAP": st.column_config.SelectboxColumn(
-            "Upload to SAP",
-            options=["Yes", "No", "Done"],
-        ),
-        "Call Iteration": st.column_config.SelectboxColumn(
-            "Call Iteration",
-            options=[
-                "First Call",
-                "Recall Once",
-                "Recall Twice",
-                "Recall Thrice",
-            ],
-        ),
-    },
-)
+with st.form("resume_editor_form"):
+    editor_df = st.data_editor(
+        filtered_df.drop(columns=["Candidate Name"]),
+        num_rows="dynamic",
+        width="stretch",
+        disabled=["File Name"],
+        column_config={
+            "JR Number": st.column_config.SelectboxColumn(
+                "JR Number",
+                options=active_jr_numbers,
+            ),
+            "Skill": st.column_config.SelectboxColumn(
+                "Skill",
+                options=active_skills,
+            ),
+            "Actual Status": st.column_config.SelectboxColumn(
+                "Actual Status",
+                options=[
+                    "Not Called",
+                    "Called",
+                    "No Answer",
+                    "Interested",
+                    "Not Interested",
+                    "Wrong Number",
+                    "Call Back Later",
+                    "Interview Scheduled",
+                ],
+            ),
+            "Upload to SAP": st.column_config.SelectboxColumn(
+                "Upload to SAP",
+                options=["Yes", "No", "Done"],
+            ),
+            "Call Iteration": st.column_config.SelectboxColumn(
+                "Call Iteration",
+                options=[
+                    "First Call",
+                    "Recall Once",
+                    "Recall Twice",
+                    "Recall Thrice",
+                ],
+            ),
+        },
+        key="resume_editor",
+    )
+    save_table_changes = st.form_submit_button("Save Table Changes", use_container_width=True)
 
-edited_df = edited_df.dropna(how="all")
-edited_df = edited_df[
-    ~(edited_df[["First Name", "Last Name", "Email", "Phone"]].fillna("").apply(lambda x: x.str.strip()).eq("").all(axis=1))
-]
+if save_table_changes:
+    editor_df = editor_df.dropna(how="all")
+    editor_df = editor_df[
+        ~(editor_df[["First Name", "Last Name", "Email", "Phone"]].fillna("").apply(lambda x: x.str.strip()).eq("").all(axis=1))
+    ]
 
-for _, row in edited_df.iterrows():
-    file_name = str(row.get("File Name", "")).strip()
-    if file_name:
-        st.session_state.parsed_resume_rows[file_name] = row.to_dict()
+    for _, row in editor_df.iterrows():
+        file_name = str(row.get("File Name", "")).strip()
+        jr_number = str(row.get("JR Number", "")).strip()
+        if jr_number in jr_master_by_number:
+            master_row = jr_master_by_number[jr_number]
+            if not str(row.get("Skill", "")).strip():
+                row["Skill"] = str(master_row.get("skill_name", "")).strip()
+        if file_name:
+            st.session_state.parsed_resume_rows[file_name] = row.to_dict()
 
 all_rows_df = pd.DataFrame(list(st.session_state.parsed_resume_rows.values()))
 all_rows_df = all_rows_df.reindex(columns=df.columns)
@@ -771,12 +823,17 @@ if not st.session_state.email_drafts_df.empty:
     st.subheader("Email Details")
     st.caption("Edit the email fields here. The form uses full-width inputs for long values.")
 
+    recruiter_options = active_recruiters.copy()
+    current_recruiter_value = str(st.session_state.get(f"draft_recruiter_name_{selected_idx}", "")).strip()
+    if current_recruiter_value and current_recruiter_value not in recruiter_options:
+        recruiter_options = sorted(recruiter_options + [current_recruiter_value])
+
     col1, col2 = st.columns(2)
     with col1:
-        recruiter_name = st.text_input(
+        recruiter_name = st.selectbox(
             "Client Recruiter Name",
+            options=recruiter_options if recruiter_options else [current_recruiter_value or ""],
             key=f"draft_recruiter_name_{selected_idx}",
-            width="stretch",
         )
         email_to = st.text_input(
             "Email To",
