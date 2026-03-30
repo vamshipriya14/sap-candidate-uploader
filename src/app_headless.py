@@ -100,7 +100,7 @@ def build_email_drafts(successful_rows, metadata_by_jr, user: dict) -> pd.DataFr
                 "Email To": meta.get("email_to", ""),
                 "CC": "rec_team@volibits.com",
                 "Email From": sender_email,
-                "Subject": f"BS:{job_title}" if job_title else "BS:",
+                "Subject": f"BS: {job_title}" if job_title else "BS:",
                 "Email Body": build_email_body(recruiter_name, job_title, sender_name),
                 "Profiles": len(rows),
                 "Files": ", ".join(str(row.get("File Name", "")) for row in rows),
