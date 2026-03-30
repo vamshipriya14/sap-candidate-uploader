@@ -213,8 +213,9 @@ def _row_snapshot(row: dict) -> dict:
         "Actual Status",
         "Call Iteration",
         "comments/Availability",
-        "Error",
         "Upload to SAP",
+        "client_recruiter",
+        "Error",
     ]
     snapshot = {}
     for column in tracked_columns:
@@ -406,6 +407,7 @@ for index, file in enumerate(files):
             "comments/Availability": "",
             "Error": "",
             "Upload to SAP": "Yes",
+            "client_recruiter": "",
         }
         try:
             file.seek(0)
@@ -414,6 +416,15 @@ for index, file in enumerate(files):
             row["Last Name"] = data.get("last_name", "")
             row["Email"] = data.get("email", "")
             row["Phone"] = data.get("phone", "")
+
+            # If JR Number is found in the master list, pre-fill the Skill and client_recruiter
+            jr_number = str(row.get("JR Number", "")).strip()
+            if jr_number in jr_master_by_number:
+                master_row = jr_master_by_number[jr_number]
+                if not str(row.get("Skill", "")).strip():
+                    row["Skill"] = str(master_row.get("skill_name", "")).strip()
+                if not str(row.get("client_recruiter", "")).strip():
+                    row["client_recruiter"] = str(master_row.get("client_recruiter", "")).strip()
         except Exception as error:
             row["Error"] = str(error)
 
@@ -446,6 +457,10 @@ df = df.reindex(
         "JR Number",
         "Date",
         "Skill",
+        "client_recruiter",
+        "client_recruiter_email",
+        "recruiter",
+        "recruiter_email",
         "File Name",
         "First Name",
         "Last Name",
@@ -464,6 +479,7 @@ df = df.reindex(
         "comments/Availability",
         "Error",
         "Upload to SAP",
+
     ]
 )
 invalid_count = len(df[(df["First Name"].fillna("").str.strip() == "") | (df["Email"].fillna("").str.strip() == "")])
@@ -515,7 +531,15 @@ if upload_filter:
 
 with st.form("resume_editor_form"):
     editor_df = st.data_editor(
-        filtered_df.drop(columns=["Candidate Name"]),
+        filtered_df.drop(
+            columns=[
+                "Candidate Name",
+                "client_recruiter",
+                "client_recruiter_email",
+                "recruiter",
+                "recruiter_email",
+            ]
+        ),
         num_rows="dynamic",
         width="stretch",
         disabled=["File Name"],
@@ -567,13 +591,24 @@ if save_table_changes:
 
     for _, row in editor_df.iterrows():
         file_name = str(row.get("File Name", "")).strip()
-        jr_number = str(row.get("JR Number", "")).strip()
+        if not file_name:
+            continue
+
+        # Merge edited row data back into session state, preserving hidden columns
+        current_data = st.session_state.parsed_resume_rows.get(file_name, {}).copy()
+        current_data.update(row.to_dict())
+
+        jr_number = str(current_data.get("JR Number", "")).strip()
         if jr_number in jr_master_by_number:
             master_row = jr_master_by_number[jr_number]
-            if not str(row.get("Skill", "")).strip():
-                row["Skill"] = str(master_row.get("skill_name", "")).strip()
-        if file_name:
-            st.session_state.parsed_resume_rows[file_name] = row.to_dict()
+            if not str(current_data.get("Skill", "")).strip():
+                current_data["Skill"] = str(master_row.get("skill_name", "")).strip()
+            if not str(current_data.get("client_recruiter", "")).strip():
+                current_data["client_recruiter"] = str(master_row.get("client_recruiter", "")).strip()
+            if not str(current_data.get("client_recruiter_email", "")).strip():
+                current_data["client_recruiter_email"] = str(master_row.get("client_recruiter_email", "")).strip()
+
+        st.session_state.parsed_resume_rows[file_name] = current_data
     st.rerun()
 
 all_rows_df = pd.DataFrame(list(st.session_state.parsed_resume_rows.values()))
@@ -701,6 +736,15 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                         "resume_file": file_obj,
                     },
                 )
+
+                # Update Skill and recruiter details from SAP metadata
+                if jr_number in metadata_by_jr:
+                    meta = metadata_by_jr[jr_number]
+                    if not str(row.get("Skill", "")).strip():
+                        row["Skill"] = str(meta.get("job_title", "")).strip()
+                    if not str(row.get("client_recruiter", "")).strip():
+                        row["client_recruiter"] = str(meta.get("client_recruiter", "")).strip()
+
                 row["Upload to SAP"] = "Done"
                 file_name = str(row.get("File Name", "")).strip()
                 if file_name:

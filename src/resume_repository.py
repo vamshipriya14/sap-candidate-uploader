@@ -97,6 +97,7 @@ def _resume_db_payload(row: dict, user: dict, resume_link: str | None = None) ->
         "jr_number": str(row.get("JR Number", "")).strip(),
         "date_text": str(row.get("Date", "")).strip(),
         "skill": str(row.get("Skill", "")).strip(),
+        "client_recruiter": str(row.get("client_recruiter", "")).strip(),
         "file_name": str(row.get("File Name", "")).strip(),
         "first_name": str(row.get("First Name", "")).strip(),
         "last_name": str(row.get("Last Name", "")).strip(),
