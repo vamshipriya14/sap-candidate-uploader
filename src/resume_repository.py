@@ -215,3 +215,13 @@ def update_resume_record(record_id: str, row: dict, user: dict, resume_link: str
     if not records:
         return payload
     return records[0]
+
+
+def fetch_all_resume_records() -> list[dict]:
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?select=*",
+        headers=_supabase_headers(),
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()

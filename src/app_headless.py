@@ -495,10 +495,6 @@ df = df.reindex(
             "Error",
             "Upload to SAP",
             "File Name",
-            "client_recruiter",
-            "client_recruiter_email",
-            "recruiter",
-            "recruiter_email",
         ]
     )
 invalid_count = len(df[(df["First Name"].fillna("").str.strip() == "") | (df["Email"].fillna("").str.strip() == "")])
@@ -541,6 +537,10 @@ if not db_df.empty:
         "comments_availability": "comments/Availability",
         "error_message": "Error",
         "resume_link": "resume_link",
+        "client_recruiter": "client_recruiter",
+        "client_recruiter_email": "client_recruiter_email",
+        "recruiter": "recruiter",
+        "recruiter_email": "recruiter_email",
     })
 
 filter_source_df = db_df.copy() if not db_df.empty else pd.DataFrame(columns=["Candidate Name", "JR Number", "Actual Status", "Call Iteration", "Upload to SAP"])
@@ -601,6 +601,7 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
         avail_cols = [c for c in display_cols if c in filtered_db_df.columns]
         select_cols = ["Select"] + avail_cols
         
+        # Display table (recruiter columns are not in display_cols)
         db_editor = st.data_editor(
             filtered_db_df[select_cols],
             hide_index=True,
@@ -610,7 +611,8 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
         )
         
         if st.button("Add Selected Records to Main Table"):
-            selected_rows = db_editor[db_editor["Select"] == True]
+            selected_rows_indices = db_editor[db_editor["Select"] == True].index
+            selected_rows = filtered_db_df.loc[selected_rows_indices]
             if selected_rows.empty:
                 st.warning("No rows selected")
             else:
@@ -646,14 +648,7 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
 st.subheader("Review & Edit Data")
 with st.form("resume_editor_form"):
     editor_df = st.data_editor(
-        df.drop(
-            columns=[
-                "client_recruiter",
-                "client_recruiter_email",
-                "recruiter",
-                "recruiter_email",
-            ]
-        ),
+        df,
         num_rows="dynamic",
         width="stretch",
         disabled=["File Name"],
