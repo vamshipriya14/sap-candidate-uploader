@@ -167,6 +167,26 @@ def upload_resume_to_shared_drive(file_name: str, content: bytes, subfolder: str
     return data.get("webUrl", "")
 
 
+def delete_resume_from_shared_drive(file_name: str, subfolder: str) -> None:
+    if not ONEDRIVE_SHARED_FOLDER_LINK:
+        raise Exception("Set ONEDRIVE_SHARED_FOLDER_LINK in src/resume_repository.py")
+
+    token = _graph_app_token()
+    safe_file_name = _clean_file_name(file_name)
+    subfolder = str(subfolder or "").strip().strip("/")
+    remote_path = f"{subfolder}/{safe_file_name}" if subfolder else safe_file_name
+    share_token = _share_token(ONEDRIVE_SHARED_FOLDER_LINK)
+
+    response = requests.delete(
+        f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem:/"
+        f"{remote_path}",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+    if response.status_code not in (204, 404):
+        response.raise_for_status()
+
+
 def insert_resume_record(row: dict, user: dict, resume_link: str) -> dict:
     payload = _resume_db_payload(row, user, resume_link=resume_link)
     payload["created_by"] = str(user.get("email", "")).strip()

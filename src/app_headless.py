@@ -8,7 +8,7 @@ import streamlit as st
 from auth import require_login, show_user_profile
 from notifier import send_client_email, send_upload_notification
 from resume_parser import parse_resume
-from resume_repository import insert_resume_record, jr_folder_name, update_resume_record, upload_resume_to_shared_drive
+from resume_repository import delete_resume_from_shared_drive, insert_resume_record, jr_folder_name, update_resume_record, upload_resume_to_shared_drive
 from sap_bot_headless import SAPBot
 from uploader import upload_to_sap
 
@@ -219,8 +219,11 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
         if f"/{jr_folder}/" not in current_link:
             file_bytes = st.session_state.uploaded_files_store.get(file_name)
             if file_bytes:
+                previous_folder = "pending_jr" if "/pending_jr/" in current_link else ""
                 resume_link = upload_resume_to_shared_drive(file_name, file_bytes, subfolder=jr_folder)
                 st.session_state.resume_links[file_name] = resume_link
+                if previous_folder and previous_folder != jr_folder:
+                    delete_resume_from_shared_drive(file_name, previous_folder)
                 update_resume_record(record_id, row_dict, user, resume_link=resume_link)
         snapshot = _row_snapshot(row_dict)
         if st.session_state.resume_row_snapshots.get(file_name) == snapshot:
@@ -228,6 +231,12 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
         update_resume_record(record_id, row_dict, user, resume_link=st.session_state.resume_links.get(file_name, ""))
         st.session_state.resume_row_snapshots[file_name] = snapshot
         st.session_state.parsed_resume_rows[file_name] = dict(row_dict)
+
+
+def _candidate_display_name(row: pd.Series) -> str:
+    return " ".join(
+        part for part in [str(row.get("First Name", "")).strip(), str(row.get("Last Name", "")).strip()] if part
+    ).strip()
 
 
 st.set_page_config(page_title="Resume -> SAP Upload", layout="wide")
@@ -425,8 +434,50 @@ if invalid_count:
     st.warning(f"{invalid_count} resume(s) need correction before upload")
 
 st.subheader("Review & Edit Data")
+filter_source_df = df.copy()
+filter_source_df["Candidate Name"] = filter_source_df.apply(_candidate_display_name, axis=1)
+
+f1, f2, f3, f4, f5 = st.columns(5)
+with f1:
+    candidate_filter = st.multiselect(
+        "Candidate Name",
+        options=sorted(name for name in filter_source_df["Candidate Name"].unique() if name),
+    )
+with f2:
+    jr_filter_values = st.multiselect(
+        "JR Number",
+        options=sorted(value for value in filter_source_df["JR Number"].fillna("").astype(str).str.strip().unique() if value),
+    )
+with f3:
+    actual_status_filter = st.multiselect(
+        "Call Status",
+        options=sorted(value for value in filter_source_df["Actual Status"].fillna("").astype(str).str.strip().unique() if value),
+    )
+with f4:
+    call_iteration_filter = st.multiselect(
+        "Call Iteration",
+        options=sorted(value for value in filter_source_df["Call Iteration"].fillna("").astype(str).str.strip().unique() if value),
+    )
+with f5:
+    upload_filter = st.multiselect(
+        "Upload to SAP",
+        options=sorted(value for value in filter_source_df["Upload to SAP"].fillna("").astype(str).str.strip().unique() if value),
+    )
+
+filtered_df = filter_source_df.copy()
+if candidate_filter:
+    filtered_df = filtered_df[filtered_df["Candidate Name"].isin(candidate_filter)]
+if jr_filter_values:
+    filtered_df = filtered_df[filtered_df["JR Number"].fillna("").astype(str).str.strip().isin(jr_filter_values)]
+if actual_status_filter:
+    filtered_df = filtered_df[filtered_df["Actual Status"].fillna("").astype(str).str.strip().isin(actual_status_filter)]
+if call_iteration_filter:
+    filtered_df = filtered_df[filtered_df["Call Iteration"].fillna("").astype(str).str.strip().isin(call_iteration_filter)]
+if upload_filter:
+    filtered_df = filtered_df[filtered_df["Upload to SAP"].fillna("").astype(str).str.strip().isin(upload_filter)]
+
 edited_df = st.data_editor(
-    df,
+    filtered_df.drop(columns=["Candidate Name"]),
     num_rows="dynamic",
     width="stretch",
     disabled=["File Name"],
@@ -446,7 +497,7 @@ edited_df = st.data_editor(
         ),
         "Upload to SAP": st.column_config.SelectboxColumn(
             "Upload to SAP",
-            options=["Yes", "No"],
+            options=["Yes", "No", "Done"],
         ),
         "Call Iteration": st.column_config.SelectboxColumn(
             "Call Iteration",
@@ -461,6 +512,18 @@ edited_df = st.data_editor(
 )
 
 edited_df = edited_df.dropna(how="all")
+edited_df = edited_df[
+    ~(edited_df[["First Name", "Last Name", "Email", "Phone"]].fillna("").apply(lambda x: x.str.strip()).eq("").all(axis=1))
+]
+
+for _, row in edited_df.iterrows():
+    file_name = str(row.get("File Name", "")).strip()
+    if file_name:
+        st.session_state.parsed_resume_rows[file_name] = row.to_dict()
+
+all_rows_df = pd.DataFrame(list(st.session_state.parsed_resume_rows.values()))
+all_rows_df = all_rows_df.reindex(columns=df.columns)
+edited_df = all_rows_df.dropna(how="all")
 edited_df = edited_df[
     ~(edited_df[["First Name", "Last Name", "Email", "Phone"]].fillna("").apply(lambda x: x.str.strip()).eq("").all(axis=1))
 ]
@@ -586,6 +649,20 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                         "resume_file": file_obj,
                     },
                 )
+                row["Upload to SAP"] = "Done"
+                file_name = str(row.get("File Name", "")).strip()
+                if file_name:
+                    updated_row = row.to_dict()
+                    st.session_state.parsed_resume_rows[file_name] = updated_row
+                    st.session_state.resume_row_snapshots[file_name] = _row_snapshot(updated_row)
+                    record_id = st.session_state.resume_record_ids.get(file_name)
+                    if record_id:
+                        update_resume_record(
+                            record_id,
+                            updated_row,
+                            user,
+                            resume_link=st.session_state.resume_links.get(file_name, ""),
+                        )
                 results_log.append({"File": row["File Name"], "Status": "Success"})
                 successful_rows.append(row.to_dict())
             except Exception as error:
