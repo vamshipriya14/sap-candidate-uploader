@@ -554,14 +554,21 @@ with st.form("resume_editor_form"):
         width="stretch",
         disabled=["File Name"],
         column_config={
-            "JR Number": st.column_config.SelectboxColumn(
+            "JR Number": st.column_config.TextColumn(
                 "JR Number",
-                options=active_jr_numbers,
+                help="Enter JR Number (Suggestions from master list provided, but manual entry is allowed)",
+                pinned=True,
             ),
-            "Skill": st.column_config.SelectboxColumn(
+            "Date": st.column_config.Column(
+                pinned=True,
+            ),
+            "Skill": st.column_config.TextColumn(
                 "Skill",
-                options=active_skills,
                 width="small",
+                pinned=True,
+            ),
+            "First Name": st.column_config.Column(
+                pinned=True,
             ),
             "Actual Status": st.column_config.SelectboxColumn(
                 "Actual Status",
