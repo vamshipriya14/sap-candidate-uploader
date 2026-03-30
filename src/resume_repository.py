@@ -98,6 +98,22 @@ def _share_token(url: str) -> str:
     return f"u!{encoded}"
 
 
+def _shared_folder_drive_item(token: str) -> dict:
+    share_token = _share_token(ONEDRIVE_SHARED_FOLDER_LINK)
+    response = requests.get(
+        f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+    response.raise_for_status()
+    data = response.json()
+    parent_reference = data.get("parentReference", {})
+    return {
+        "drive_id": parent_reference.get("driveId") or data.get("parentReference", {}).get("driveId"),
+        "item_id": data.get("id"),
+    }
+
+
 def jr_folder_name(jr_number: str) -> str:
     cleaned = re.sub(r"[<>:\"/\\|?*]+", "_", str(jr_number or "").strip())
     return cleaned or "pending_jr"
@@ -150,10 +166,10 @@ def upload_resume_to_shared_drive(file_name: str, content: bytes, subfolder: str
     safe_file_name = _clean_file_name(file_name)
     subfolder = str(subfolder or "").strip().strip("/")
     remote_path = f"{subfolder}/{safe_file_name}" if subfolder else safe_file_name
-    share_token = _share_token(ONEDRIVE_SHARED_FOLDER_LINK)
+    drive_item = _shared_folder_drive_item(token)
 
     response = requests.put(
-        f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem:/"
+        f"https://graph.microsoft.com/v1.0/drives/{drive_item['drive_id']}/items/{drive_item['item_id']}:/"
         f"{remote_path}:/content",
         headers={
             "Authorization": f"Bearer {token}",
@@ -175,10 +191,10 @@ def delete_resume_from_shared_drive(file_name: str, subfolder: str) -> None:
     safe_file_name = _clean_file_name(file_name)
     subfolder = str(subfolder or "").strip().strip("/")
     remote_path = f"{subfolder}/{safe_file_name}" if subfolder else safe_file_name
-    share_token = _share_token(ONEDRIVE_SHARED_FOLDER_LINK)
+    drive_item = _shared_folder_drive_item(token)
 
     response = requests.delete(
-        f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem:/"
+        f"https://graph.microsoft.com/v1.0/drives/{drive_item['drive_id']}/items/{drive_item['item_id']}:/"
         f"{remote_path}",
         headers={"Authorization": f"Bearer {token}"},
         timeout=30,
