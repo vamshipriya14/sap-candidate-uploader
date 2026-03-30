@@ -33,3 +33,10 @@ create table if not exists public.candidate_resumes (
 
 create index if not exists idx_candidate_resumes_file_name on public.candidate_resumes (file_name);
 create index if not exists idx_candidate_resumes_jr_number on public.candidate_resumes (jr_number);
+
+-- RECRUITER SIGNATURES TABLE
+create table if not exists public.recruiter_signatures (
+    user_email text primary key,
+    signature text not null default '',
+    updated_at timestamptz not null default timezone('utc', now())
+);

@@ -232,7 +232,7 @@ def get_user_signature(email: str) -> str:
     if not email:
         return ""
     response = requests.get(
-        f"{SUPABASE_URL}/rest/v1/user_signatures?user_email=eq.{email}&select=signature",
+        f"{SUPABASE_URL}/rest/v1/recruiter_signatures?user_email=eq.{email}&select=signature",
         headers=_supabase_headers(),
         timeout=10,
     )
@@ -252,7 +252,7 @@ def save_user_signature(email: str, signature: str) -> None:
         "updated_at": _now_iso(),
     }
     response = requests.post(
-        f"{SUPABASE_URL}/rest/v1/user_signatures",
+        f"{SUPABASE_URL}/rest/v1/recruiter_signatures",
         headers={**_supabase_headers(), "Prefer": "resolution=merge-duplicates"},
         json=payload,
         timeout=10,
