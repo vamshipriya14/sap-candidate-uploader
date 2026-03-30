@@ -126,19 +126,32 @@ def build_email_drafts(successful_rows, metadata_by_jr, user: dict) -> pd.DataFr
 def build_candidate_details_table(successful_rows, metadata_by_jr) -> pd.DataFrame:
     today_text = date.today().strftime("%d-%b-%Y")
     candidate_rows = []
+    seen_keys = set()  # prevent duplicate primary keys
+
     for row in successful_rows:
         first_name = str(row.get("First Name", "")).strip()
         last_name = str(row.get("Last Name", "")).strip()
         jr = str(row.get("JR Number", "")).strip()
-        meta = metadata_by_jr.get(jr, {})
+        email_id = str(row.get("Email", "")).strip()
+        contact_number = str(row.get("Phone", "")).strip()
+        meta = metadata_by_jr.get(jr) or {}
+
+        # Composite primary key
+        primary_key = (jr, email_id, contact_number)
+        if primary_key in seen_keys:
+            continue  # skip duplicates
+        seen_keys.add(primary_key)
+
         candidate_rows.append(
             {
+                # Primary key columns first — locked from editing
                 "JR Number": jr,
-                "Date": row.get("Date", "") or today_text,
+                "Email ID": email_id,
+                "Contact Number": contact_number,
+                # Editable columns
+                "Date": today_text,
                 "Skill": meta.get("job_title", "") or row.get("Skill", ""),
                 "Candidate Name": " ".join(part for part in [first_name, last_name] if part),
-                "Contact Number": row.get("Phone", ""),
-                "Email ID": row.get("Email", ""),
                 "Current Company": row.get("Current Company", ""),
                 "Total Experience": row.get("Total Experience", ""),
                 "Relevant Experience": row.get("Relevant Experience", ""),
@@ -147,8 +160,6 @@ def build_candidate_details_table(successful_rows, metadata_by_jr) -> pd.DataFra
                 "Notice Period": row.get("Notice Period", ""),
                 "Current Location": row.get("Current Location", ""),
                 "Preferred Location": row.get("Preferred Location", ""),
-                "Actual Status": row.get("Actual Status", ""),
-                "Call Iteration": row.get("Call Iteration", ""),
                 "comments/Availability": row.get("comments/Availability", row.get("Comments", "")),
             }
         )
