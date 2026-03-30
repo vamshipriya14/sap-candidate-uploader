@@ -246,8 +246,11 @@ def send_client_email(user: dict, draft: dict, candidate_rows: list, attachments
 
     cc_input = draft.get("CC", "")
     cc_list = _parse_recipients(cc_input)
-    if "rec_team@volibits.com" not in [x.lower() for x in cc_list]:
-        cc_list.insert(0, "rec_team@volibits.com")
+    # Removing forced inclusion of rec_team@volibits.com to allow user removal.
+    # It should be added as a default in the draft generation instead.
+    # if "rec_team@volibits.com" not in [x.lower() for x in cc_list]:
+      #  cc_list.insert(0, "rec_team@volibits.com")
+
 
     subject = str(draft.get("Subject", "")).strip() or "BS:"
     body_text = str(draft.get("Email Body", "")).strip()
