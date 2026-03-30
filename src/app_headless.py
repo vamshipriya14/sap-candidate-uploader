@@ -574,6 +574,7 @@ if save_table_changes:
                 row["Skill"] = str(master_row.get("skill_name", "")).strip()
         if file_name:
             st.session_state.parsed_resume_rows[file_name] = row.to_dict()
+    st.rerun()
 
 all_rows_df = pd.DataFrame(list(st.session_state.parsed_resume_rows.values()))
 all_rows_df = all_rows_df.reindex(columns=df.columns)
