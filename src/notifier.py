@@ -299,6 +299,12 @@ def send_client_email(user: dict, draft: dict, candidate_rows: list, attachments
             f"<thead><tr>{ths}</tr></thead><tbody>{rows_html}</tbody></table>"
         )
     body_html = _build_body_with_table(body_text, table_html)
+    user_signature = user.get("signature")
+    if user_signature:
+        # Check if signature is plain text or HTML. Simple heuristic: look for tags.
+        if "<" not in user_signature:
+             user_signature = _html_escape(user_signature).replace("\n", "<br>")
+        body_html += f"<br><br>{user_signature}"
 
     html = f"""
     <html><body style='font-family:Segoe UI,Arial,sans-serif;color:#222'>

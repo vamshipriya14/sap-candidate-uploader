@@ -45,7 +45,7 @@ AUTH_URL  = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authoriz
 TOKEN_URL = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
 
 # User-level sign-in plus OneDrive delegated upload scope.
-SCOPE = "User.Read Files.ReadWrite openid profile email"
+SCOPE = "User.Read Files.ReadWrite MailboxSettings.Read openid profile email"
 
 
 # =========================
@@ -121,6 +121,17 @@ def _fetch_user(access_token: str) -> dict:
         import base64
         photo_b64 = base64.b64encode(photo_resp.content).decode()
 
+    # Fetch email signature
+    signature = None
+    sig_resp = requests.get(
+        "https://graph.microsoft.com/v1.0/me/mailboxSettings",
+        headers=headers
+    )
+    if sig_resp.status_code == 200:
+        data = sig_resp.json()
+        # Common locations for user's email signature in Graph API
+        signature = data.get("signature", "") or data.get("automaticRepliesSetting", {}).get("externalReplyMessage", "")
+    
     return {
         "name":       user.get("displayName", ""),
         "email":      user.get("mail") or user.get("userPrincipalName", ""),
@@ -128,6 +139,7 @@ def _fetch_user(access_token: str) -> dict:
         "department": user.get("department", ""),
         "office":     user.get("officeLocation", ""),
         "photo_b64":  photo_b64,
+        "signature":  signature,
     }
 
 

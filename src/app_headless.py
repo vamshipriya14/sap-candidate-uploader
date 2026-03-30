@@ -1179,6 +1179,9 @@ if not st.session_state.email_drafts_df.empty:
         "",
         body_text,
     ]
+    if user.get("signature"):
+        preview_lines.append("\n--- Signature ---")
+        preview_lines.append(user["signature"])
 
     st.subheader("Email Preview")
     st.text("\n".join(preview_lines))
