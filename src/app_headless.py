@@ -11,6 +11,7 @@ from resume_parser import parse_resume
 from resume_repository import (
     delete_resume_from_shared_drive,
     fetch_active_jr_master,
+    fetch_all_resume_records,
     insert_resume_record,
     jr_folder_name,
     update_resume_record,
@@ -337,6 +338,14 @@ if "resume_row_snapshots" not in st.session_state:
     st.session_state.resume_row_snapshots = {}
 if "resume_links" not in st.session_state:
     st.session_state.resume_links = {}
+if "db_resume_records" not in st.session_state:
+    st.session_state.db_resume_records = []
+
+# Fetch DB records for filters and collapsible table
+try:
+    st.session_state.db_resume_records = fetch_all_resume_records()
+except Exception as e:
+    st.warning(f"Could not fetch database records: {e}")
 
 # =========================
 # FILE UPLOAD & PARSE
@@ -496,54 +505,149 @@ invalid_count = len(df[(df["First Name"].fillna("").str.strip() == "") | (df["Em
 if invalid_count:
     st.warning(f"{invalid_count} resume(s) need correction before upload")
 
-st.subheader("Review & Edit Data")
-filter_source_df = df.copy()
-filter_source_df["Candidate Name"] = filter_source_df.apply(_candidate_display_name, axis=1)
+# =========================
+# FILTERS & COLLAPSIBLE DB TABLE
+# =========================
+st.subheader("Filters & Database Lookup")
+db_df = pd.DataFrame(st.session_state.db_resume_records)
+if not db_df.empty:
+    db_df["Candidate Name"] = db_df.apply(
+        lambda row: " ".join(
+            part for part in [str(row.get("first_name", "")).strip(), str(row.get("last_name", "")).strip()] if part
+        ).strip(),
+        axis=1
+    )
+    # Map DB column names to UI column names for consistency
+    db_df = db_df.rename(columns={
+        "jr_number": "JR Number",
+        "date_text": "Date",
+        "skill": "Skill",
+        "file_name": "File Name",
+        "first_name": "First Name",
+        "last_name": "Last Name",
+        "email": "Email",
+        "phone": "Phone",
+        "current_company": "Current Company",
+        "total_experience": "Total Experience",
+        "relevant_experience": "Relevant Experience",
+        "current_ctc": "Current CTC",
+        "expected_ctc": "Expected CTC",
+        "notice_period": "Notice Period",
+        "current_location": "Current Location",
+        "preferred_location": "Preferred Location",
+        "upload_to_sap": "Upload to SAP",
+        "actual_status": "Actual Status",
+        "call_iteration": "Call Iteration",
+        "comments_availability": "comments/Availability",
+        "error_message": "Error",
+        "resume_link": "resume_link",
+    })
+
+filter_source_df = db_df.copy() if not db_df.empty else pd.DataFrame(columns=["Candidate Name", "JR Number", "Actual Status", "Call Iteration", "Upload to SAP"])
 
 f1, f2, f3, f4, f5 = st.columns(5)
 with f1:
     candidate_filter = st.multiselect(
-        "Candidate Name",
-        options=sorted(name for name in filter_source_df["Candidate Name"].unique() if name),
+        "Candidate Name (from DB)",
+        options=sorted(name for name in filter_source_df["Candidate Name"].unique() if name) if not filter_source_df.empty else [],
     )
 with f2:
     jr_filter_values = st.multiselect(
-        "JR Number",
-        options=sorted(value for value in filter_source_df["JR Number"].fillna("").astype(str).str.strip().unique() if value),
+        "JR Number (from DB)",
+        options=sorted(value for value in filter_source_df["JR Number"].fillna("").astype(str).str.strip().unique() if value) if not filter_source_df.empty else [],
     )
 with f3:
     actual_status_filter = st.multiselect(
-        "Call Status",
-        options=sorted(value for value in filter_source_df["Actual Status"].fillna("").astype(str).str.strip().unique() if value),
+        "Call Status (from DB)",
+        options=sorted(value for value in filter_source_df["Actual Status"].fillna("").astype(str).str.strip().unique() if value) if not filter_source_df.empty else [],
     )
 with f4:
     call_iteration_filter = st.multiselect(
-        "Call Iteration",
-        options=sorted(value for value in filter_source_df["Call Iteration"].fillna("").astype(str).str.strip().unique() if value),
+        "Call Iteration (from DB)",
+        options=sorted(value for value in filter_source_df["Call Iteration"].fillna("").astype(str).str.strip().unique() if value) if not filter_source_df.empty else [],
     )
 with f5:
     upload_filter = st.multiselect(
-        "Upload to SAP",
-        options=sorted(value for value in filter_source_df["Upload to SAP"].fillna("").astype(str).str.strip().unique() if value),
+        "Upload to SAP (from DB)",
+        options=sorted(value for value in filter_source_df["Upload to SAP"].fillna("").astype(str).str.strip().unique() if value) if not filter_source_df.empty else [],
     )
 
-filtered_df = filter_source_df.copy()
+filtered_db_df = filter_source_df.copy()
 if candidate_filter:
-    filtered_df = filtered_df[filtered_df["Candidate Name"].isin(candidate_filter)]
+    filtered_db_df = filtered_db_df[filtered_db_df["Candidate Name"].isin(candidate_filter)]
 if jr_filter_values:
-    filtered_df = filtered_df[filtered_df["JR Number"].fillna("").astype(str).str.strip().isin(jr_filter_values)]
+    filtered_db_df = filtered_db_df[filtered_db_df["JR Number"].fillna("").astype(str).str.strip().isin(jr_filter_values)]
 if actual_status_filter:
-    filtered_df = filtered_df[filtered_df["Actual Status"].fillna("").astype(str).str.strip().isin(actual_status_filter)]
+    filtered_db_df = filtered_db_df[filtered_db_df["Actual Status"].fillna("").astype(str).str.strip().isin(actual_status_filter)]
 if call_iteration_filter:
-    filtered_df = filtered_df[filtered_df["Call Iteration"].fillna("").astype(str).str.strip().isin(call_iteration_filter)]
+    filtered_db_df = filtered_db_df[filtered_db_df["Call Iteration"].fillna("").astype(str).str.strip().isin(call_iteration_filter)]
 if upload_filter:
-    filtered_df = filtered_df[filtered_df["Upload to SAP"].fillna("").astype(str).str.strip().isin(upload_filter)]
+    filtered_db_df = filtered_db_df[filtered_db_df["Upload to SAP"].fillna("").astype(str).str.strip().isin(upload_filter)]
 
+with st.expander("Searchable Database Records - Add to Main Table", expanded=False):
+    if filtered_db_df.empty:
+        st.info("No records match the filters")
+    else:
+        # Reorder columns to match main table
+        display_cols = [
+            "JR Number", "Date", "Skill", "First Name", "Last Name", "Email", "Phone",
+            "Current Company", "Total Experience", "Relevant Experience", "Current CTC",
+            "Expected CTC", "Notice Period", "Current Location", "Preferred Location",
+            "Actual Status", "Call Iteration", "comments/Availability", "Error", "Upload to SAP", "File Name"
+        ]
+        
+        # Add selection column
+        filtered_db_df["Select"] = False
+        avail_cols = [c for c in display_cols if c in filtered_db_df.columns]
+        select_cols = ["Select"] + avail_cols
+        
+        db_editor = st.data_editor(
+            filtered_db_df[select_cols],
+            hide_index=True,
+            num_rows="fixed",
+            width="stretch",
+            key="db_records_editor"
+        )
+        
+        if st.button("Add Selected Records to Main Table"):
+            selected_rows = db_editor[db_editor["Select"] == True]
+            if selected_rows.empty:
+                st.warning("No rows selected")
+            else:
+                for _, row in selected_rows.iterrows():
+                    file_name = str(row.get("File Name", "")).strip()
+                    if not file_name:
+                        file_name = f"db_record_{row.get('id', 'unknown')}"
+                    
+                    # Store link and record ID for added records
+                    # Search in original st.session_state.db_resume_records
+                    original_record = None
+                    # We need a way to find the ID. Let's include ID in the filtered_db_df but hide it if needed
+                    # For now, let's assume 'id' is in filtered_db_df
+                    if 'id' in row:
+                        original_record = next((r for r in st.session_state.db_resume_records if str(r.get("id")) == str(row.get("id"))), {})
+                    
+                    if original_record:
+                        st.session_state.resume_record_ids[file_name] = str(original_record.get("id", ""))
+                        st.session_state.resume_links[file_name] = original_record.get("resume_link", "")
+                    
+                    row_data = row.to_dict()
+                    row_data.pop("Select", None)
+                    row_data["File Name"] = file_name
+                    
+                    # Ensure it's in parsed_resume_rows so main table shows it
+                    st.session_state.parsed_resume_rows[file_name] = row_data
+                    # Snapshot it so it doesn't trigger immediate sync unless changed
+                    st.session_state.resume_row_snapshots[file_name] = _row_snapshot(row_data)
+                    
+                st.success(f"Added {len(selected_rows)} record(s) to the table below.")
+                st.rerun()
+
+st.subheader("Review & Edit Data")
 with st.form("resume_editor_form"):
     editor_df = st.data_editor(
-        filtered_df.drop(
+        df.drop(
             columns=[
-                "Candidate Name",
                 "client_recruiter",
                 "client_recruiter_email",
                 "recruiter",
@@ -554,9 +658,10 @@ with st.form("resume_editor_form"):
         width="stretch",
         disabled=["File Name"],
         column_config={
-            "JR Number": st.column_config.TextColumn(
+            "JR Number": st.column_config.SelectboxColumn(
                 "JR Number",
-                help="Enter JR Number (Suggestions from master list provided, but manual entry is allowed)",
+                options=active_jr_numbers,
+                help="Select JR Number from active list",
                 pinned=True,
             ),
             "Date": st.column_config.Column(
@@ -736,7 +841,19 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
 
                 file_bytes = st.session_state.uploaded_files_store.get(row["File Name"])
                 if not file_bytes:
-                    raise Exception("File bytes not found in session")
+                    # If file bytes not in store, it might be an added record from DB.
+                    # We try to fetch from resume_link if available.
+                    resume_link = st.session_state.resume_links.get(row["File Name"])
+                    if resume_link:
+                        import requests
+                        resp = requests.get(resume_link, timeout=30)
+                        if resp.status_code == 200:
+                            file_bytes = resp.content
+                            st.session_state.uploaded_files_store[row["File Name"]] = file_bytes
+                        else:
+                            raise Exception(f"Failed to download resume from link: {resume_link} (Status {resp.status_code})")
+                    else:
+                        raise Exception("File bytes not found in session and no resume link available")
 
                 file_obj = io.BytesIO(file_bytes)
                 file_obj.name = row["File Name"]
