@@ -189,6 +189,8 @@ def _review_row_style(row: pd.Series):
         return ["background-color: #ffe5e5"] * len(row)
     if str(row.get("Upload to SAP", "")).strip() == "Yes":
         return ["background-color: #e8f7e8"] * len(row)
+    if str(row.get("Upload to SAP", "")).strip() == "Failed":
+        return ["background-color: #ffe5e5"] * len(row)
     return [""] * len(row)
 
 
@@ -215,6 +217,9 @@ def _row_snapshot(row: dict) -> dict:
         "comments/Availability",
         "Upload to SAP",
         "client_recruiter",
+        "client_recruiter_email",
+        "recruiter",
+        "recruiter_email",
         "Error",
     ]
     snapshot = {}
@@ -408,6 +413,9 @@ for index, file in enumerate(files):
             "Error": "",
             "Upload to SAP": "Yes",
             "client_recruiter": "",
+            "client_recruiter_email": "",
+            "recruiter": user.get("name", ""),
+            "recruiter_email": user.get("email", ""),
         }
         try:
             file.seek(0)
@@ -425,6 +433,8 @@ for index, file in enumerate(files):
                     row["Skill"] = str(master_row.get("skill_name", "")).strip()
                 if not str(row.get("client_recruiter", "")).strip():
                     row["client_recruiter"] = str(master_row.get("client_recruiter", "")).strip()
+                if not str(row.get("client_recruiter_email", "")).strip():
+                    row["client_recruiter_email"] = str(master_row.get("client_recruiter_email", "")).strip()
         except Exception as error:
             row["Error"] = str(error)
 
@@ -452,36 +462,36 @@ for index, file in enumerate(files):
 # VALIDATION & TABLE
 # =========================
 df = pd.DataFrame(results)
+df.index = df.index + 1
 df = df.reindex(
-    columns=[
-        "JR Number",
-        "Date",
-        "Skill",
-        "client_recruiter",
-        "client_recruiter_email",
-        "recruiter",
-        "recruiter_email",
-        "File Name",
-        "First Name",
-        "Last Name",
-        "Email",
-        "Phone",
-        "Current Company",
-        "Total Experience",
-        "Relevant Experience",
-        "Current CTC",
-        "Expected CTC",
-        "Notice Period",
-        "Current Location",
-        "Preferred Location",
-        "Actual Status",
-        "Call Iteration",
-        "comments/Availability",
-        "Error",
-        "Upload to SAP",
-
-    ]
-)
+        columns=[
+            "JR Number",
+            "Date",
+            "Skill",
+            "First Name",
+            "Last Name",
+            "Email",
+            "Phone",
+            "Current Company",
+            "Total Experience",
+            "Relevant Experience",
+            "Current CTC",
+            "Expected CTC",
+            "Notice Period",
+            "Current Location",
+            "Preferred Location",
+            "Actual Status",
+            "Call Iteration",
+            "comments/Availability",
+            "Error",
+            "Upload to SAP",
+            "File Name",
+            "client_recruiter",
+            "client_recruiter_email",
+            "recruiter",
+            "recruiter_email",
+        ]
+    )
 invalid_count = len(df[(df["First Name"].fillna("").str.strip() == "") | (df["Email"].fillna("").str.strip() == "")])
 if invalid_count:
     st.warning(f"{invalid_count} resume(s) need correction before upload")
@@ -543,6 +553,7 @@ with st.form("resume_editor_form"):
         num_rows="dynamic",
         width="stretch",
         disabled=["File Name"],
+        pinned_columns=["JR Number", "Date", "Skill", "First Name"],
         column_config={
             "JR Number": st.column_config.SelectboxColumn(
                 "JR Number",
@@ -551,6 +562,7 @@ with st.form("resume_editor_form"):
             "Skill": st.column_config.SelectboxColumn(
                 "Skill",
                 options=active_skills,
+                width="small",
             ),
             "Actual Status": st.column_config.SelectboxColumn(
                 "Actual Status",
@@ -567,7 +579,7 @@ with st.form("resume_editor_form"):
             ),
             "Upload to SAP": st.column_config.SelectboxColumn(
                 "Upload to SAP",
-                options=["Yes", "No", "Done"],
+                options=["Yes", "No", "Done", "Failed"],
             ),
             "Call Iteration": st.column_config.SelectboxColumn(
                 "Call Iteration",
@@ -612,6 +624,7 @@ if save_table_changes:
     st.rerun()
 
 all_rows_df = pd.DataFrame(list(st.session_state.parsed_resume_rows.values()))
+all_rows_df.index = all_rows_df.index + 1
 all_rows_df = all_rows_df.reindex(columns=df.columns)
 edited_df = all_rows_df.dropna(how="all")
 edited_df = edited_df[
@@ -744,6 +757,8 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                         row["Skill"] = str(meta.get("job_title", "")).strip()
                     if not str(row.get("client_recruiter", "")).strip():
                         row["client_recruiter"] = str(meta.get("client_recruiter", "")).strip()
+                    if not str(row.get("client_recruiter_email", "")).strip():
+                        row["client_recruiter_email"] = str(meta.get("email_to", "")).strip()
 
                 row["Upload to SAP"] = "Done"
                 file_name = str(row.get("File Name", "")).strip()
@@ -765,6 +780,21 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                 screenshot_name = None
                 if bot:
                     try:
+                        row["Upload to SAP"] = "Failed"
+                        file_name = str(row.get("File Name", "")).strip()
+                        if file_name:
+                            updated_row = row.to_dict()
+                            st.session_state.parsed_resume_rows[file_name] = updated_row
+                            st.session_state.resume_row_snapshots[file_name] = _row_snapshot(updated_row)
+                            record_id = st.session_state.resume_record_ids.get(file_name)
+                            if record_id:
+                                update_resume_record(
+                                    record_id,
+                                    updated_row,
+                                    user,
+                                    resume_link=st.session_state.resume_links.get(file_name, ""),
+                                )
+
                         candidate_name = " ".join(
                             part for part in [str(row.get("First Name", "")).strip(), str(row.get("Last Name", "")).strip()] if part
                         ).strip()
