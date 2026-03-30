@@ -417,152 +417,148 @@ files = st.file_uploader(
     help="Each resume must have a unique filename. Duplicates will be ignored.",
 )
 
-if not files:
-    st.session_state.uploaded_files_store = {}
-    st.session_state.parsed_resume_rows = {}
-    st.session_state.resume_record_ids = {}
-    st.session_state.resume_row_snapshots = {}
-    st.session_state.resume_links = {}
-    reset_email_state()
-    st.session_state.last_uploaded_signature = ()
-    st.stop()
+if files:
+    seen = set()
+    unique_files = []
+    for file in files:
+        if file.name in seen:
+            st.warning(f"Duplicate file skipped: **{file.name}**")
+        else:
+            seen.add(file.name)
+            unique_files.append(file)
+    files = unique_files
+    current_signature = tuple(sorted(file.name for file in files))
+    if st.session_state.last_uploaded_signature != current_signature:
+        # Clear only the newly uploaded file state, not the imported DB records
+        # To distinguish, we'd need to track which ones are from files.
+        # But the user might want to clear everything when new files are uploaded.
+        # For now, let's keep it simple and only process new files.
+        st.session_state.last_uploaded_signature = current_signature
 
-seen = set()
-unique_files = []
-for file in files:
-    if file.name in seen:
-        st.warning(f"Duplicate file skipped: **{file.name}**")
-    else:
-        seen.add(file.name)
-        unique_files.append(file)
-files = unique_files
-current_signature = tuple(sorted(file.name for file in files))
-if st.session_state.last_uploaded_signature != current_signature:
-    st.session_state.uploaded_files_store = {}
-    st.session_state.parsed_resume_rows = {}
-    st.session_state.resume_record_ids = {}
-    st.session_state.resume_row_snapshots = {}
-    st.session_state.resume_links = {}
-    reset_email_state()
-    clear_pending_upload_state()
-    st.session_state.last_uploaded_signature = current_signature
+    st.info(f"{len(files)} resume(s) ready for processing")
 
-st.info(f"{len(files)} resume(s) ready for processing")
+    results = []
+    progress = st.progress(0)
+    today_text = date.today().strftime("%d-%b-%Y")
 
-results = []
-progress = st.progress(0)
-today_text = date.today().strftime("%d-%b-%Y")
+    for index, file in enumerate(files):
+        file.seek(0)
+        file_bytes = file.read()
+        st.session_state.uploaded_files_store[file.name] = file_bytes
 
-for index, file in enumerate(files):
-    file.seek(0)
-    file_bytes = file.read()
-    st.session_state.uploaded_files_store[file.name] = file_bytes
+        if file.name not in st.session_state.parsed_resume_rows:
+            row = {
+                "JR Number": "",
+                "Date": today_text,
+                "Skill": "",
+                "File Name": file.name,
+                "First Name": "",
+                "Last Name": "",
+                "Email": "",
+                "Phone": "",
+                "Current Company": "",
+                "Total Experience": "",
+                "Relevant Experience": "",
+                "Current CTC": "",
+                "Expected CTC": "",
+                "Notice Period": "",
+                "Current Location": "",
+                "Preferred Location": "",
+                "Actual Status": "Not Called",
+                "Call Iteration": "First Call",
+                "comments/Availability": "",
+                "Error": "",
+                "Upload to SAP": "Yes",
+                "client_recruiter": "",
+                "client_recruiter_email": "",
+                "recruiter": user.get("name", ""),
+                "recruiter_email": user.get("email", ""),
+            }
+            try:
+                file.seek(0)
+                data = parse_resume(file)
+                row["First Name"] = data.get("first_name", "")
+                row["Last Name"] = data.get("last_name", "")
+                row["Email"] = data.get("email", "")
+                row["Phone"] = data.get("phone", "")
 
-    if file.name not in st.session_state.parsed_resume_rows:
-        row = {
-            "JR Number": "",
-            "Date": today_text,
-            "Skill": "",
-            "File Name": file.name,
-            "First Name": "",
-            "Last Name": "",
-            "Email": "",
-            "Phone": "",
-            "Current Company": "",
-            "Total Experience": "",
-            "Relevant Experience": "",
-            "Current CTC": "",
-            "Expected CTC": "",
-            "Notice Period": "",
-            "Current Location": "",
-            "Preferred Location": "",
-            "Actual Status": "Not Called",
-            "Call Iteration": "First Call",
-            "comments/Availability": "",
-            "Error": "",
-            "Upload to SAP": "Yes",
-            "client_recruiter": "",
-            "client_recruiter_email": "",
-            "recruiter": user.get("name", ""),
-            "recruiter_email": user.get("email", ""),
-        }
-        try:
-            file.seek(0)
-            data = parse_resume(file)
-            row["First Name"] = data.get("first_name", "")
-            row["Last Name"] = data.get("last_name", "")
-            row["Email"] = data.get("email", "")
-            row["Phone"] = data.get("phone", "")
+                # If JR Number is found in the master list, pre-fill the Skill and client_recruiter
+                jr_number = str(row.get("JR Number", "")).strip()
+                if jr_number in jr_master_by_number:
+                    master_row = jr_master_by_number[jr_number]
+                    if not str(row.get("Skill", "")).strip():
+                        row["Skill"] = str(master_row.get("skill_name", "")).strip()
+                    if not str(row.get("client_recruiter", "")).strip():
+                        row["client_recruiter"] = str(master_row.get("client_recruiter", "")).strip()
+                    if not str(row.get("client_recruiter_email", "")).strip():
+                        row["client_recruiter_email"] = str(master_row.get("client_recruiter_email", "")).strip()
+            except Exception as error:
+                row["Error"] = str(error)
 
-            # If JR Number is found in the master list, pre-fill the Skill and client_recruiter
-            jr_number = str(row.get("JR Number", "")).strip()
-            if jr_number in jr_master_by_number:
-                master_row = jr_master_by_number[jr_number]
-                if not str(row.get("Skill", "")).strip():
-                    row["Skill"] = str(master_row.get("skill_name", "")).strip()
-                if not str(row.get("client_recruiter", "")).strip():
-                    row["client_recruiter"] = str(master_row.get("client_recruiter", "")).strip()
-                if not str(row.get("client_recruiter_email", "")).strip():
-                    row["client_recruiter_email"] = str(master_row.get("client_recruiter_email", "")).strip()
-        except Exception as error:
-            row["Error"] = str(error)
+            try:
+                # Upload to pending_jr initially, but don't insert into DB yet
+                resume_link = upload_resume_to_shared_drive(
+                    user["access_token"],
+                    file.name,
+                    file_bytes,
+                    subfolder=jr_folder_name(""),
+                )
+                st.session_state.resume_links[file.name] = resume_link
+            except Exception as error:
+                row["Error"] = f"{row['Error']} | {error}".strip(" |")
 
-        try:
-            # Upload to pending_jr initially, but don't insert into DB yet
-            resume_link = upload_resume_to_shared_drive(
-                user["access_token"],
-                file.name,
-                file_bytes,
-                subfolder=jr_folder_name(""),
-            )
-            st.session_state.resume_links[file.name] = resume_link
-        except Exception as error:
-            row["Error"] = f"{row['Error']} | {error}".strip(" |")
+            st.session_state.resume_row_snapshots[file.name] = _row_snapshot(row)
+            st.session_state.parsed_resume_rows[file.name] = row
 
-        st.session_state.resume_row_snapshots[file.name] = _row_snapshot(row)
-        st.session_state.parsed_resume_rows[file.name] = row
+        progress.progress((index + 1) / len(files))
+else:
+    # If no files are currently in the uploader, we don't clear everything anymore.
+    # This allows users to work with records imported from the database lookup.
+    pass
 
-    # Add to results list for rendering the table
-    results.append(dict(st.session_state.parsed_resume_rows[file.name]))
-
-    progress.progress((index + 1) / len(files))
-
-# Include manually added records from DB that are not in the results list (files list)
-all_file_names_in_results = {r["File Name"] for r in results}
-for f_name, row_data in st.session_state.parsed_resume_rows.items():
-    if f_name not in all_file_names_in_results:
-        results.append(dict(row_data))
+# Collect all records for the main table from session state
+results = [dict(row_data) for row_data in st.session_state.parsed_resume_rows.values()]
 
 # =========================
 # VALIDATION & TABLE
 # =========================
-df = pd.DataFrame(results)
+if results:
+    df = pd.DataFrame(results)
+else:
+    # Create an empty DataFrame with expected columns if no results
+    df = pd.DataFrame(columns=[
+        "JR Number", "Date", "Skill", "First Name", "Last Name", "Email", "Phone",
+        "Current Company", "Total Experience", "Relevant Experience", "Current CTC",
+        "Expected CTC", "Notice Period", "Current Location", "Preferred Location",
+        "Actual Status", "Call Iteration", "comments/Availability", "Error", "Upload to SAP", "File Name"
+    ])
+
 df.index = df.index + 1
 df = df.reindex(
-        columns=[
-            "JR Number",
-            "Date",
-            "Skill",
-            "First Name",
-            "Last Name",
-            "Email",
-            "Phone",
-            "Current Company",
-            "Total Experience",
-            "Relevant Experience",
-            "Current CTC",
-            "Expected CTC",
-            "Notice Period",
-            "Current Location",
-            "Preferred Location",
-            "Actual Status",
-            "Call Iteration",
-            "comments/Availability",
-            "Error",
-            "Upload to SAP",
-            "File Name",
-        ]
-    )
+    columns=[
+        "JR Number",
+        "Date",
+        "Skill",
+        "First Name",
+        "Last Name",
+        "Email",
+        "Phone",
+        "Current Company",
+        "Total Experience",
+        "Relevant Experience",
+        "Current CTC",
+        "Expected CTC",
+        "Notice Period",
+        "Current Location",
+        "Preferred Location",
+        "Actual Status",
+        "Call Iteration",
+        "comments/Availability",
+        "Error",
+        "Upload to SAP",
+        "File Name",
+    ]
+)
 invalid_count = len(df[(df["First Name"].fillna("").str.strip() == "") | (df["Email"].fillna("").str.strip() == "")])
 if invalid_count:
     st.warning(f"{invalid_count} resume(s) need correction before upload")
@@ -673,6 +669,7 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
             hide_index=True,
             num_rows="fixed",
             width="stretch",
+            disabled=avail_cols,
             key="db_records_editor"
         )
         
