@@ -911,7 +911,12 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                     resume_link = st.session_state.resume_links.get(row["File Name"])
                     if resume_link:
                         import requests
-                        resp = requests.get(resume_link, timeout=30)
+                        # We need access token if it's a Microsoft Graph link
+                        headers = {}
+                        if "sharepoint.com" in resume_link or "graph.microsoft.com" in resume_link:
+                            headers["Authorization"] = f"Bearer {user['access_token']}"
+                        
+                        resp = requests.get(resume_link, headers=headers, timeout=30)
                         if resp.status_code == 200:
                             file_bytes = resp.content
                             st.session_state.uploaded_files_store[row["File Name"]] = file_bytes
