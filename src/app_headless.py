@@ -994,270 +994,276 @@ edited_df = edited_df[
 ]
 
 if edited_df.empty:
-    st.warning("No valid data to upload")
-    st.stop()
+    if not st.session_state.email_drafts_df.empty or any(str(r.get("client_email_sent", "No")).strip() == "No" for r in st.session_state.db_resume_records):
+        # We have emails to handle, so we don't stop here. 
+        # But we still want to show the warning if there's no data for upload.
+        st.warning("No valid data to upload")
+    else:
+        st.warning("No valid data to upload")
+        st.stop()
 
-try:
-    _sync_resume_rows_to_db(edited_df, user)
-except Exception as error:
-    st.error(f"Supabase sync failed: {error}")
-
-missing_jr = edited_df[edited_df["JR Number"].fillna("").str.strip() == ""]
-if not missing_jr.empty:
-    st.warning(f"{len(missing_jr)} row(s) are missing JR Number - fill them before uploading")
-
-# =========================
-# DOWNLOAD CSV
-# =========================
-csv = edited_df.to_csv(index=False).encode("utf-8")
-st.download_button("Download CSV", data=csv, file_name="parsed_resumes.csv", mime="text/csv")
-
-st.divider()
-
-# =========================
-# SINGLE-ACTION SAP UPLOAD
-# =========================
-st.subheader("SAP Upload")
-
-submit_mode = st.toggle(
-    "Submit candidates (Add Candidate)",
-    value=False,
-    help="ON = submit candidates. OFF = dry run and cancel at the end.",
-)
-
-if submit_mode:
-    st.caption("Live mode - upload will connect to SAP, submit candidates, and close automatically.")
-else:
-    st.caption("Dry run mode - upload will connect to SAP, fill the form, cancel, and close automatically.")
-
-if st.button("Upload", type="primary", width="stretch"):
-    # Ensure all changes are saved to DB before starting SAP upload
+if not edited_df.empty:
     try:
         _sync_resume_rows_to_db(edited_df, user)
     except Exception as error:
-        st.error(f"Sync to database failed before upload: {error}")
-        st.stop()
+        st.error(f"Supabase sync failed: {error}")
 
-    reset_email_state()
-    upload_rows = edited_df[
-        (edited_df["Upload to SAP"].fillna("").str.strip() == "Yes")
-        & (edited_df["First Name"].fillna("").str.strip() != "")
-        & (edited_df["Email"].fillna("").str.strip() != "")
-        & (edited_df["JR Number"].fillna("").str.strip() != "")
-        ]
+    missing_jr = edited_df[edited_df["JR Number"].fillna("").str.strip() == ""]
+    if not missing_jr.empty:
+        st.warning(f"{len(missing_jr)} row(s) are missing JR Number - fill them before uploading")
 
-    if upload_rows.empty:
-        st.error("No valid rows with JR Number to upload")
+    # =========================
+    # DOWNLOAD CSV
+    # =========================
+    csv = edited_df.to_csv(index=False).encode("utf-8")
+    st.download_button("Download CSV", data=csv, file_name="parsed_resumes.csv", mime="text/csv")
+
+    st.divider()
+
+    # =========================
+    # SINGLE-ACTION SAP UPLOAD
+    # =========================
+    st.subheader("SAP Upload")
+
+    submit_mode = st.toggle(
+        "Submit candidates (Add Candidate)",
+        value=False,
+        help="ON = submit candidates. OFF = dry run and cancel at the end.",
+    )
+
+    if submit_mode:
+        st.caption("Live mode - upload will connect to SAP, submit candidates, and close automatically.")
     else:
-        st.session_state.pending_upload_rows = upload_rows.to_dict(orient="records")
-        st.session_state.pending_submit_mode = submit_mode
-        st.session_state.upload_confirmed = False
-        st.rerun()
+        st.caption("Dry run mode - upload will connect to SAP, fill the form, cancel, and close automatically.")
 
-if st.session_state.pending_upload_rows and not st.session_state.upload_confirmed:
-    st.warning("Confirm the candidates below before SAP upload.")
-    confirm_df = pd.DataFrame(st.session_state.pending_upload_rows)
-    confirm_df["Candidate Name"] = (
-            confirm_df["First Name"].fillna("").astype(str).str.strip()
-            + " "
-            + confirm_df["Last Name"].fillna("").astype(str).str.strip()
-    ).str.strip()
-    st.dataframe(confirm_df[["Candidate Name", "JR Number"]], width="stretch", hide_index=True)
-    confirm_col, cancel_col = st.columns(2)
-    with confirm_col:
-        if st.button("Confirm Upload", type="primary", width="stretch"):
-            st.session_state.upload_confirmed = True
+    if st.button("Upload", type="primary", width="stretch"):
+        # Ensure all changes are saved to DB before starting SAP upload
+        try:
+            _sync_resume_rows_to_db(edited_df, user)
+        except Exception as error:
+            st.error(f"Sync to database failed before upload: {error}")
+            st.stop()
+
+        reset_email_state()
+        upload_rows = edited_df[
+            (edited_df["Upload to SAP"].fillna("").str.strip() == "Yes")
+            & (edited_df["First Name"].fillna("").str.strip() != "")
+            & (edited_df["Email"].fillna("").str.strip() != "")
+            & (edited_df["JR Number"].fillna("").str.strip() != "")
+            ]
+
+        if upload_rows.empty:
+            st.error("No valid rows with JR Number to upload")
+        else:
+            st.session_state.pending_upload_rows = upload_rows.to_dict(orient="records")
+            st.session_state.pending_submit_mode = submit_mode
+            st.session_state.upload_confirmed = False
             st.rerun()
-    with cancel_col:
-        if st.button("Cancel Upload", width="stretch"):
-            clear_pending_upload_state()
-            st.rerun()
 
-if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
-    submit_mode = st.session_state.pending_submit_mode
-    upload_rows = pd.DataFrame(st.session_state.pending_upload_rows)
-    bot = None
-    results_log = []
-    successful_rows = []
-    metadata_by_jr = {}
-    failed_upload_attachments = []
-    upload_progress = st.progress(0)
-    status_box = st.empty()
+    if st.session_state.pending_upload_rows and not st.session_state.upload_confirmed:
+        st.warning("Confirm the candidates below before SAP upload.")
+        confirm_df = pd.DataFrame(st.session_state.pending_upload_rows)
+        confirm_df["Candidate Name"] = (
+                confirm_df["First Name"].fillna("").astype(str).str.strip()
+                + " "
+                + confirm_df["Last Name"].fillna("").astype(str).str.strip()
+        ).str.strip()
+        st.dataframe(confirm_df[["Candidate Name", "JR Number"]], width="stretch", hide_index=True)
+        confirm_col, cancel_col = st.columns(2)
+        with confirm_col:
+            if st.button("Confirm Upload", type="primary", width="stretch"):
+                st.session_state.upload_confirmed = True
+                st.rerun()
+        with cancel_col:
+            if st.button("Cancel Upload", width="stretch"):
+                clear_pending_upload_state()
+                st.rerun()
 
-    try:
-        status_box.info("Connecting to SAP...")
-        bot = SAPBot()
-        bot.start()
-        bot.login()
+    if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
+        submit_mode = st.session_state.pending_submit_mode
+        upload_rows = pd.DataFrame(st.session_state.pending_upload_rows)
+        bot = None
+        results_log = []
+        successful_rows = []
+        metadata_by_jr = {}
+        failed_upload_attachments = []
+        upload_progress = st.progress(0)
+        status_box = st.empty()
 
-        for index, (_, row) in enumerate(upload_rows.iterrows()):
-            status_box.info(f"Uploading {row['File Name']} ({index + 1}/{len(upload_rows)})...")
-            try:
-                jr_number = str(row["JR Number"]).strip()
-                if jr_number and jr_number not in metadata_by_jr:
-                    metadata_by_jr[jr_number] = bot.get_job_email_details(jr_number)
+        try:
+            status_box.info("Connecting to SAP...")
+            bot = SAPBot()
+            bot.start()
+            bot.login()
 
-                file_bytes = st.session_state.uploaded_files_store.get(row["File Name"])
-                if not file_bytes:
-                    # If file bytes not in store, it might be an added record from DB.
-                    # We try to fetch from resume_link if available.
-                    resume_link = st.session_state.resume_links.get(row["File Name"])
-                    if resume_link:
-                        import requests
+            for index, (_, row) in enumerate(upload_rows.iterrows()):
+                status_box.info(f"Uploading {row['File Name']} ({index + 1}/{len(upload_rows)})...")
+                try:
+                    jr_number = str(row["JR Number"]).strip()
+                    if jr_number and jr_number not in metadata_by_jr:
+                        metadata_by_jr[jr_number] = bot.get_job_email_details(jr_number)
 
-                        # We need access token if it's a Microsoft Graph link
-                        headers = {}
-                        if "sharepoint.com" in resume_link or "graph.microsoft.com" in resume_link:
-                            import base64
+                    file_bytes = st.session_state.uploaded_files_store.get(row["File Name"])
+                    if not file_bytes:
+                        # If file bytes not in store, it might be an added record from DB.
+                        # We try to fetch from resume_link if available.
+                        resume_link = st.session_state.resume_links.get(row["File Name"])
+                        if resume_link:
+                            import requests
 
-                            share_token = f"u!{base64.urlsafe_b64encode(resume_link.encode('utf-8')).decode('utf-8').rstrip('=')}"
-                            graph_url = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem/content"
-                            headers["Authorization"] = f"Bearer {user['access_token']}"
-                            resp = requests.get(graph_url, headers=headers, timeout=30)
+                            # We need access token if it's a Microsoft Graph link
+                            headers = {}
+                            if "sharepoint.com" in resume_link or "graph.microsoft.com" in resume_link:
+                                import base64
+
+                                share_token = f"u!{base64.urlsafe_b64encode(resume_link.encode('utf-8')).decode('utf-8').rstrip('=')}"
+                                graph_url = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem/content"
+                                headers["Authorization"] = f"Bearer {user['access_token']}"
+                                resp = requests.get(graph_url, headers=headers, timeout=30)
+                            else:
+                                resp = requests.get(resume_link, headers=headers, timeout=30)
+
+                            if resp.status_code == 200:
+                                file_bytes = resp.content
+                                st.session_state.uploaded_files_store[row["File Name"]] = file_bytes
+                            else:
+                                raise Exception(
+                                    f"Failed to download resume from link: {resume_link} (Status {resp.status_code})")
                         else:
-                            resp = requests.get(resume_link, headers=headers, timeout=30)
+                            raise Exception("File bytes not found in session and no resume link available")
 
-                        if resp.status_code == 200:
-                            file_bytes = resp.content
-                            st.session_state.uploaded_files_store[row["File Name"]] = file_bytes
-                        else:
-                            raise Exception(
-                                f"Failed to download resume from link: {resume_link} (Status {resp.status_code})")
-                    else:
-                        raise Exception("File bytes not found in session and no resume link available")
+                    file_obj = io.BytesIO(file_bytes)
+                    file_obj.name = row["File Name"]
 
-                file_obj = io.BytesIO(file_bytes)
-                file_obj.name = row["File Name"]
+                    upload_to_sap(
+                        bot,
+                        {
+                            "jr_number": jr_number,
+                            "first_name": row["First Name"],
+                            "last_name": row["Last Name"],
+                            "submit": submit_mode,
+                            "email": row["Email"],
+                            "phone": row["Phone"],
+                            "country_code": "+91",
+                            "country": "India",
+                            "resume_file": file_obj,
+                        },
+                    )
 
-                upload_to_sap(
-                    bot,
-                    {
-                        "jr_number": jr_number,
-                        "first_name": row["First Name"],
-                        "last_name": row["Last Name"],
-                        "submit": submit_mode,
-                        "email": row["Email"],
-                        "phone": row["Phone"],
-                        "country_code": "+91",
-                        "country": "India",
-                        "resume_file": file_obj,
-                    },
-                )
+                    # Update Skill and recruiter details from SAP metadata
+                    if jr_number in metadata_by_jr:
+                        meta = metadata_by_jr[jr_number]
+                        if not str(row.get("Skill", "")).strip():
+                            row["Skill"] = str(meta.get("job_title", "")).strip()
+                        if not str(row.get("client_recruiter", "")).strip():
+                            row["client_recruiter"] = str(meta.get("client_recruiter", "")).strip()
+                        if not str(row.get("client_recruiter_email", "")).strip():
+                            row["client_recruiter_email"] = str(meta.get("email_to", "")).strip()
 
-                # Update Skill and recruiter details from SAP metadata
-                if jr_number in metadata_by_jr:
-                    meta = metadata_by_jr[jr_number]
-                    if not str(row.get("Skill", "")).strip():
-                        row["Skill"] = str(meta.get("job_title", "")).strip()
-                    if not str(row.get("client_recruiter", "")).strip():
-                        row["client_recruiter"] = str(meta.get("client_recruiter", "")).strip()
-                    if not str(row.get("client_recruiter_email", "")).strip():
-                        row["client_recruiter_email"] = str(meta.get("email_to", "")).strip()
+                    row["Upload to SAP"] = "Done"
+                    file_name = str(row.get("File Name", "")).strip()
+                    if file_name:
+                        updated_row = row.to_dict()
+                        st.session_state.parsed_resume_rows[file_name] = updated_row
+                        st.session_state.resume_row_snapshots[file_name] = _row_snapshot(updated_row)
+                        record_id = st.session_state.resume_record_ids.get(file_name)
+                        if record_id:
+                            update_resume_record(
+                                record_id,
+                                updated_row,
+                                user,
+                                resume_link=st.session_state.resume_links.get(file_name, ""),
+                            )
+                    results_log.append({"File": row["File Name"], "Status": "Success"})
+                    successful_rows.append(row.to_dict())
+                except Exception as error:
+                    screenshot_name = None
+                    if bot:
+                        try:
+                            row["Upload to SAP"] = "Failed"
+                            file_name = str(row.get("File Name", "")).strip()
+                            if file_name:
+                                updated_row = row.to_dict()
+                                st.session_state.parsed_resume_rows[file_name] = updated_row
+                                st.session_state.resume_row_snapshots[file_name] = _row_snapshot(updated_row)
+                                record_id = st.session_state.resume_record_ids.get(file_name)
+                                if record_id:
+                                    update_resume_record(
+                                        record_id,
+                                        updated_row,
+                                        user,
+                                        resume_link=st.session_state.resume_links.get(file_name, ""),
+                                    )
 
-                row["Upload to SAP"] = "Done"
-                file_name = str(row.get("File Name", "")).strip()
-                if file_name:
-                    updated_row = row.to_dict()
-                    st.session_state.parsed_resume_rows[file_name] = updated_row
-                    st.session_state.resume_row_snapshots[file_name] = _row_snapshot(updated_row)
-                    record_id = st.session_state.resume_record_ids.get(file_name)
-                    if record_id:
-                        update_resume_record(
-                            record_id,
-                            updated_row,
-                            user,
-                            resume_link=st.session_state.resume_links.get(file_name, ""),
-                        )
-                results_log.append({"File": row["File Name"], "Status": "Success"})
-                successful_rows.append(row.to_dict())
-            except Exception as error:
-                screenshot_name = None
-                if bot:
-                    try:
-                        row["Upload to SAP"] = "Failed"
-                        file_name = str(row.get("File Name", "")).strip()
-                        if file_name:
-                            updated_row = row.to_dict()
-                            st.session_state.parsed_resume_rows[file_name] = updated_row
-                            st.session_state.resume_row_snapshots[file_name] = _row_snapshot(updated_row)
-                            record_id = st.session_state.resume_record_ids.get(file_name)
-                            if record_id:
-                                update_resume_record(
-                                    record_id,
-                                    updated_row,
-                                    user,
-                                    resume_link=st.session_state.resume_links.get(file_name, ""),
-                                )
+                            candidate_name = " ".join(
+                                part for part in
+                                [str(row.get("First Name", "")).strip(), str(row.get("Last Name", "")).strip()] if part
+                            ).strip()
+                            screenshot_name = (
+                                f"{_safe_attachment_part(jr_number, 'unknown_jr')}_"
+                                f"{_safe_attachment_part(candidate_name, 'candidate')}_failed_upload"
+                            )
+                            screenshot_path = bot._screenshot(screenshot_name)
+                            failed_upload_attachments.append(
+                                {
+                                    "name": f"{screenshot_name}.png",
+                                    "content": screenshot_path.read_bytes(),
+                                }
+                            )
+                        except Exception:
+                            pass
+                    results_log.append(
+                        {
+                            "File": row["File Name"],
+                            "Status": normalize_upload_error(error),
+                        }
+                    )
 
-                        candidate_name = " ".join(
-                            part for part in
-                            [str(row.get("First Name", "")).strip(), str(row.get("Last Name", "")).strip()] if part
-                        ).strip()
-                        screenshot_name = (
-                            f"{_safe_attachment_part(jr_number, 'unknown_jr')}_"
-                            f"{_safe_attachment_part(candidate_name, 'candidate')}_failed_upload"
-                        )
-                        screenshot_path = bot._screenshot(screenshot_name)
-                        failed_upload_attachments.append(
-                            {
-                                "name": f"{screenshot_name}.png",
-                                "content": screenshot_path.read_bytes(),
-                            }
-                        )
-                    except Exception:
-                        pass
-                results_log.append(
-                    {
-                        "File": row["File Name"],
-                        "Status": normalize_upload_error(error),
-                    }
-                )
+                upload_progress.progress((index + 1) / len(upload_rows))
 
-            upload_progress.progress((index + 1) / len(upload_rows))
+        except Exception as error:
+            friendly = normalize_upload_error(error)
+            if not results_log:
+                for _, row in upload_rows.iterrows():
+                    results_log.append({"File": row["File Name"], "Status": friendly})
+            status_box.error(f"SAP upload failed: {friendly}")
+        finally:
+            if bot:
+                try:
+                    bot.close()
+                except Exception:
+                    pass
+            status_box.empty()
 
-    except Exception as error:
-        friendly = normalize_upload_error(error)
-        if not results_log:
-            for _, row in upload_rows.iterrows():
-                results_log.append({"File": row["File Name"], "Status": friendly})
-        status_box.error(f"SAP upload failed: {friendly}")
-    finally:
-        if bot:
-            try:
-                bot.close()
-            except Exception:
-                pass
-        status_box.empty()
+        st.session_state.email_drafts_df = build_email_drafts(successful_rows, metadata_by_jr, user)
+        st.session_state.email_candidates_df = build_candidate_details_table(successful_rows, metadata_by_jr)
 
-    st.session_state.email_drafts_df = build_email_drafts(successful_rows, metadata_by_jr, user)
-    st.session_state.email_candidates_df = build_candidate_details_table(successful_rows, metadata_by_jr)
+        results_df = pd.DataFrame(results_log)
+        success_count = len(results_df[results_df["Status"] == "Success"])
+        failed_count = len(results_df) - success_count
 
-    results_df = pd.DataFrame(results_log)
-    success_count = len(results_df[results_df["Status"] == "Success"])
-    failed_count = len(results_df) - success_count
+        if failed_count == 0:
+            st.success(f"All {success_count} candidate(s) processed successfully.")
+        else:
+            st.warning(f"{success_count} succeeded, {failed_count} failed.")
 
-    if failed_count == 0:
-        st.success(f"All {success_count} candidate(s) processed successfully.")
-    else:
-        st.warning(f"{success_count} succeeded, {failed_count} failed.")
+        st.dataframe(results_df, width="stretch")
 
-    st.dataframe(results_df, width="stretch")
+        with st.spinner("Sending upload report..."):
+            ok, msg = send_upload_notification(
+                access_token=user["access_token"],
+                user=user,
+                results=results_log,
+                submit_mode=submit_mode,
+                attachments=failed_upload_attachments,
+            )
 
-    with st.spinner("Sending upload report..."):
-        ok, msg = send_upload_notification(
-            access_token=user["access_token"],
-            user=user,
-            results=results_log,
-            submit_mode=submit_mode,
-            attachments=failed_upload_attachments,
-        )
+        if ok:
+            st.info(f"Upload report sent to **{user['email']}**")
+        else:
+            st.warning(msg)
 
-    if ok:
-        st.info(f"Upload report sent to **{user['email']}**")
-    else:
-        st.warning(msg)
-
-    clear_pending_upload_state()
+        clear_pending_upload_state()
 
 # =========================
 # EMAIL DRAFTING & SENDING
