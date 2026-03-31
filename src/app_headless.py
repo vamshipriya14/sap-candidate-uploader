@@ -1393,7 +1393,7 @@ if not st.session_state.email_drafts_df.empty:
     current_form_signature = f"{current_draft_signature}:{selected_idx}"
     if st.session_state.last_rendered_draft_form_signature != current_form_signature:
         st.session_state[f"draft_recruiter_name_{selected_idx}"] = str(draft_row.get("Client Recruiter Name", ""))
-        st.session_state[f"draft_email_to_{selected_idx}"] = str(draft_row.get("Email To", ""))
+        st.session_state[f"draft_email_to_{selected_idx}"] = str(draft_row.get("Client Recruiter Email", ""))
         st.session_state[f"draft_email_from_{selected_idx}"] = str(draft_row.get("Email From", ""))
         st.session_state[f"draft_jr_{selected_idx}"] = str(draft_row.get("JR Number", ""))
         st.session_state[f"draft_cc_{selected_idx}"] = str(draft_row.get("CC", ""))
