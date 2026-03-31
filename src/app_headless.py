@@ -91,12 +91,14 @@ def build_email_drafts(successful_rows, metadata_by_jr, user: dict) -> pd.DataFr
 
     for jr, rows in grouped.items():
         meta = metadata_by_jr.get(jr, {})
-        job_title = meta.get("job_title", "")
+        job_title = meta.get("skill_name") or meta.get("job_title", "")
         recruiter_name = meta.get("client_recruiter", "")
+        candidate_names = ", ".join(str(row.get("Candidate Name", "")).strip() for row in rows)
         drafts.append(
             {
                 "JR Number": jr,
                 "Job Title": job_title,
+                "Candidate Names": candidate_names,
                 "Client Recruiter Name": recruiter_name,
                 "Email To": meta.get("email_to", ""),
                 "CC": "rec_team@volibits.com",
@@ -113,6 +115,7 @@ def build_email_drafts(successful_rows, metadata_by_jr, user: dict) -> pd.DataFr
         columns=[
             "JR Number",
             "Job Title",
+            "Candidate Names",
             "Client Recruiter Name",
             "Email To",
             "CC",
@@ -1288,21 +1291,32 @@ unsent_db_records = [r for r in st.session_state.db_resume_records if str(r.get(
 if unsent_db_records:
     st.subheader("Send Emails for Unsent Candidates")
     unsent_df = pd.DataFrame(unsent_db_records)
+    
+    def _get_unsent_display_name(row):
+        jr = str(row.get("jr_number", "")).strip()
+        meta = jr_master_by_number.get(jr, {})
+        job_title = str(meta.get("skill_name") or meta.get("job_title") or "").strip()
+        candidate_name = " ".join(
+            part for part in [str(row.get("first_name", "")).strip(), str(row.get("last_name", "")).strip()] if part
+        ).strip()
+        return f"{jr} - {job_title} - {candidate_name}" if job_title else f"{jr} - {candidate_name}"
+
     unsent_df["Candidate Name"] = unsent_df.apply(
         lambda row: " ".join(
             part for part in [str(row.get("first_name", "")).strip(), str(row.get("last_name", "")).strip()] if part
         ).strip(),
         axis=1
     )
+    unsent_df["Display Name"] = unsent_df.apply(_get_unsent_display_name, axis=1)
     
-    selected_unsent_names = st.multiselect(
+    selected_unsent_labels = st.multiselect(
         "Select Unsent Candidates to Send Email",
-        options=sorted(unsent_df["Candidate Name"].unique()),
+        options=sorted(unsent_df["Display Name"].unique()),
         help="Select one or more candidates to generate email drafts for them."
     )
     
     if st.button("Generate Drafts for Selected Candidates"):
-        selected_rows = unsent_df[unsent_df["Candidate Name"].isin(selected_unsent_names)]
+        selected_rows = unsent_df[unsent_df["Display Name"].isin(selected_unsent_labels)]
         if not selected_rows.empty:
             # Prepare metadata (client recruiter info)
             # Successful rows need to look like what build_email_drafts expects
@@ -1342,7 +1356,13 @@ if not st.session_state.email_drafts_df.empty:
     for idx, row in st.session_state.email_drafts_df.iterrows():
         jr = str(row.get("JR Number", "")).strip()
         title = str(row.get("Job Title", "")).strip()
-        preview_options.append((idx, f"{jr} - {title}" if title else jr))
+        candidates = str(row.get("Candidate Names", "")).strip()
+        
+        label = f"{jr} - {title}" if title else jr
+        if candidates:
+            label = f"{label} - {candidates}"
+            
+        preview_options.append((idx, label))
 
     valid_indices = [opt[0] for opt in preview_options]
     if st.session_state.selected_email_draft_idx not in valid_indices:
