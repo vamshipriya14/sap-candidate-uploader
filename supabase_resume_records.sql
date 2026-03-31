@@ -28,7 +28,8 @@ create table if not exists public.candidate_resumes (
     created_by text not null default '',
     created_at timestamptz not null default timezone('utc', now()),
     modified_by text not null default '',
-    modified_at timestamptz not null default timezone('utc', now())
+    modified_at timestamptz not null default timezone('utc', now()),
+    client_email_sent text not null default 'No'
 );
 
 create index if not exists idx_candidate_resumes_file_name on public.candidate_resumes (file_name);

@@ -768,12 +768,13 @@ if not db_df.empty:
         "client_recruiter_email": "client_recruiter_email",
         "recruiter": "recruiter",
         "recruiter_email": "recruiter_email",
+        "client_email_sent": "Email Sent",
     })
 
 filter_source_df = db_df.copy() if not db_df.empty else pd.DataFrame(
     columns=["Candidate Name", "JR Number", "Actual Status", "Call Iteration", "Upload to SAP"])
 
-f1, f2, f3, f4, f5 = st.columns(5)
+f1, f2, f3, f4, f5, f6 = st.columns(6)
 with f1:
     candidate_filter = st.multiselect(
         "Candidate Name",
@@ -807,6 +808,13 @@ with f5:
             value for value in filter_source_df["Upload to SAP"].fillna("").astype(str).str.strip().unique() if
             value) if not filter_source_df.empty else [],
     )
+with f6:
+    email_sent_filter = st.multiselect(
+        "Email Sent",
+        options=sorted(
+            value for value in filter_source_df["Email Sent"].fillna("No").astype(str).str.strip().unique() if
+            value) if not filter_source_df.empty else ["No", "Yes"],
+    )
 
 filtered_db_df = filter_source_df.copy()
 if candidate_filter:
@@ -823,6 +831,9 @@ if call_iteration_filter:
 if upload_filter:
     filtered_db_df = filtered_db_df[
         filtered_db_df["Upload to SAP"].fillna("").astype(str).str.strip().isin(upload_filter)]
+if email_sent_filter:
+    filtered_db_df = filtered_db_df[
+        filtered_db_df["Email Sent"].fillna("No").astype(str).str.strip().isin(email_sent_filter)]
 
 with st.expander("Searchable Database Records - Add to Main Table", expanded=False):
     if filtered_db_df.empty:
@@ -833,7 +844,7 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
             "JR Number", "Date", "Skill", "First Name", "Last Name", "Email", "Phone",
             "Current Company", "Total Experience", "Relevant Experience", "Current CTC",
             "Expected CTC", "Notice Period", "Current Location", "Preferred Location",
-            "Actual Status", "Call Iteration", "comments/Availability", "Error", "Upload to SAP", "File Name"
+            "Actual Status", "Call Iteration", "comments/Availability", "Error", "Upload to SAP", "Email Sent", "File Name"
         ]
 
         # Add selection column
@@ -1248,35 +1259,95 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
 
     clear_pending_upload_state()
 
-if not st.session_state.email_drafts_df.empty:
-    current_draft_signature = st.session_state.email_drafts_df.to_json(orient="split")
-    if st.session_state.last_email_draft_signature != current_draft_signature:
-        for key in list(st.session_state.keys()):
-            if str(key).startswith("draft_"):
-                del st.session_state[key]
-        st.session_state.selected_email_draft_idx = 0
-        st.session_state.last_selected_email_draft_idx = None
-        st.session_state.last_rendered_draft_form_signature = None
-        st.session_state.last_email_draft_signature = current_draft_signature
+    if not st.session_state.email_drafts_df.empty:
+        current_draft_signature = st.session_state.email_drafts_df.to_json(orient="split")
+        if st.session_state.last_email_draft_signature != current_draft_signature:
+            for key in list(st.session_state.keys()):
+                if str(key).startswith("draft_"):
+                    del st.session_state[key]
+            st.session_state.selected_email_draft_idx = 0
+            st.session_state.last_selected_email_draft_idx = None
+            st.session_state.last_rendered_draft_form_signature = None
+            st.session_state.last_email_draft_signature = current_draft_signature
+    else:
+        current_draft_signature = ""
 
     st.divider()
-    preview_options = []
-    for idx, row in st.session_state.email_drafts_df.iterrows():
-        jr = str(row.get("JR Number", "")).strip()
-        title = str(row.get("Job Title", "")).strip()
-        preview_options.append((idx, f"{jr} - {title}" if title else jr))
 
-    valid_indices = [opt[0] for opt in preview_options]
-    if st.session_state.selected_email_draft_idx not in valid_indices:
-        st.session_state.selected_email_draft_idx = valid_indices[0]
+    # Dropdown for unsent emails from DB
+    unsent_db_records = [r for r in st.session_state.db_resume_records if str(r.get("client_email_sent", "No")).strip() == "No"]
+    if unsent_db_records:
+        st.subheader("Send Emails for Unsent Candidates")
+        unsent_df = pd.DataFrame(unsent_db_records)
+        unsent_df["Candidate Name"] = unsent_df.apply(
+            lambda row: " ".join(
+                part for part in [str(row.get("first_name", "")).strip(), str(row.get("last_name", "")).strip()] if part
+            ).strip(),
+            axis=1
+        )
+        
+        selected_unsent_names = st.multiselect(
+            "Select Unsent Candidates to Send Email",
+            options=sorted(unsent_df["Candidate Name"].unique()),
+            help="Select one or more candidates to generate email drafts for them."
+        )
+        
+        if st.button("Generate Drafts for Selected Candidates"):
+            selected_rows = unsent_df[unsent_df["Candidate Name"].isin(selected_unsent_names)]
+            if not selected_rows.empty:
+                # Prepare metadata (client recruiter info)
+                # Successful rows need to look like what build_email_drafts expects
+                prep_rows = []
+                for _, r in selected_rows.iterrows():
+                    prep_rows.append({
+                        "JR Number": r.get("jr_number"),
+                        "First Name": r.get("first_name"),
+                        "Last Name": r.get("last_name"),
+                        "Candidate Name": " ".join(part for part in [str(r.get("first_name", "")).strip(), str(r.get("last_name", "")).strip()] if part).strip(),
+                        "Email": r.get("email"),
+                        "Phone": r.get("phone"),
+                        "Skill": r.get("skill"),
+                        "id": r.get("id"), # Crucial for updating later
+                        "Date": r.get("date_text"),
+                        "Contact Number": r.get("phone"),
+                        "Email ID": r.get("email"),
+                        "Current Company": r.get("current_company"),
+                        "Total Experience": r.get("total_experience"),
+                        "Relevant Experience": r.get("relevant_experience"),
+                        "Current CTC": r.get("current_ctc"),
+                        "Expected CTC": r.get("expected_ctc"),
+                        "Notice Period": r.get("notice_period"),
+                        "Current Location": r.get("current_location"),
+                        "Preferred Location": r.get("preferred_location"),
+                        "comments/Availability": r.get("comments_availability"),
+                    })
+                
+                # We need metadata_by_jr for build_email_drafts
+                # Use current jr_master_by_number
+                st.session_state.email_drafts_df = build_email_drafts(prep_rows, jr_master_by_number, user)
+                st.session_state.email_candidates_df = build_candidate_details_table(prep_rows, jr_master_by_number)
+                st.rerun()
 
-    selected_idx = st.selectbox(
-        "Email Draft",
-        options=valid_indices,
-        key="selected_email_draft_idx",
-        format_func=lambda opt: next((label for i, label in preview_options if i == opt), str(opt)),
-    )
-    draft_row = st.session_state.email_drafts_df.loc[selected_idx].to_dict()
+    if not st.session_state.email_drafts_df.empty:
+        preview_options = []
+        for idx, row in st.session_state.email_drafts_df.iterrows():
+            jr = str(row.get("JR Number", "")).strip()
+            title = str(row.get("Job Title", "")).strip()
+            preview_options.append((idx, f"{jr} - {title}" if title else jr))
+
+        valid_indices = [opt[0] for opt in preview_options]
+        if st.session_state.selected_email_draft_idx not in valid_indices:
+            st.session_state.selected_email_draft_idx = valid_indices[0]
+
+        selected_idx = st.selectbox(
+            "Email Draft",
+            options=valid_indices,
+            key="selected_email_draft_idx",
+            format_func=lambda opt: next((label for i, label in preview_options if i == opt), str(opt)),
+        )
+        draft_row = st.session_state.email_drafts_df.loc[selected_idx].to_dict()
+    else:
+        st.stop()
 
     current_form_signature = f"{current_draft_signature}:{selected_idx}"
     if st.session_state.last_rendered_draft_form_signature != current_form_signature:
@@ -1429,6 +1500,28 @@ if not st.session_state.email_drafts_df.empty:
             candidate_rows=candidate_rows,
             attachments=attachment_items,
         )
+        if ok:
+            # Mark candidates as email sent in database
+            for row in candidate_rows:
+                # Find the candidate in db_resume_records to get the ID and current state
+                candidate_id = row.get("id")
+                if candidate_id:
+                    try:
+                        # Prepare row for update_resume_record - it expects a dict with UI-like keys
+                        # and it will be passed to _resume_db_payload which handles conversion.
+                        # We just need to ensure client_email_sent is 'Yes'
+                        update_payload = dict(row)
+                        update_payload["client_email_sent"] = "Yes"
+                        update_resume_record(str(candidate_id), update_payload, user)
+                    except Exception as e:
+                        st.error(f"Failed to update email sent status for {row.get('Candidate Name')}: {e}")
+            
+            # Refresh DB records
+            try:
+                st.session_state.db_resume_records = fetch_all_resume_records()
+            except:
+                pass
+
         st.session_state.email_send_status = f"ok::{msg}" if ok else f"err::{msg}"
         st.rerun()
 
