@@ -122,6 +122,9 @@ def _resume_db_payload(row: dict, user: dict, resume_link: str | None = None) ->
         "client_recruiter": str(row.get("client_recruiter", "")).strip(),
         "client_recruiter_email": str(row.get("client_recruiter_email", "")).strip(),
         "client_email_sent": str(row.get("client_email_sent", "No")).strip(),
+        # Uploader (session user) — fall back to user param so old records get filled on next sync
+        "recruiter": str(row.get("recruiter", "") or user.get("name", "")).strip(),
+        "recruiter_email": str(row.get("recruiter_email", "") or user.get("email", "")).strip(),
     }
     if resume_link is not None:
         payload["resume_link"] = resume_link

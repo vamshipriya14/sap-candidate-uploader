@@ -32,6 +32,11 @@ st.caption(f"Logged in as **{user['name']}** ({user['email']})")
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
+def _safe(val) -> str:
+    """Return stripped string, treating None/falsy as empty."""
+    return str(val).strip() if val else ""
+
+
 def pretty_user_name(u: dict) -> str:
     display = (u.get("name") or "").strip()
     if display and "@" not in display:
@@ -146,10 +151,14 @@ if not rows_for_jr:
 
 meta = jr_master_by_number.get(selected_jr, {})
 job_title = str(meta.get("skill_name", "")).strip()
-recruiter_name_default = str(meta.get("client_recruiter", "") or rows_for_jr[0].get("client_recruiter", "")).strip()
-recruiter_email_default = str(
-    meta.get("client_recruiter_email", "") or rows_for_jr[0].get("client_recruiter_email", "")
-).strip()
+recruiter_name_default = (
+    _safe(meta.get("client_recruiter"))
+    or _safe(rows_for_jr[0].get("client_recruiter"))
+)
+recruiter_email_default = (
+    _safe(meta.get("client_recruiter_email"))
+    or _safe(rows_for_jr[0].get("client_recruiter_email"))
+)
 
 file_names = [str(r.get("file_name", "")).strip() for r in rows_for_jr if r.get("file_name")]
 

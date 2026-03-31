@@ -29,8 +29,16 @@ create table if not exists public.candidate_resumes (
     created_at timestamptz not null default timezone('utc', now()),
     modified_by text not null default '',
     modified_at timestamptz not null default timezone('utc', now()),
-    client_email_sent text not null default 'No'
+    client_recruiter text not null default '',
+    client_recruiter_email text not null default '',
+    client_email_sent text not null default 'No',
+    recruiter text not null default '',
+    recruiter_email text not null default ''
 );
+
+-- Migration: add recruiter columns if not present (safe to run on existing tables)
+alter table public.candidate_resumes add column if not exists recruiter text not null default '';
+alter table public.candidate_resumes add column if not exists recruiter_email text not null default '';
 
 create index if not exists idx_candidate_resumes_file_name on public.candidate_resumes (file_name);
 create index if not exists idx_candidate_resumes_jr_number on public.candidate_resumes (jr_number);
