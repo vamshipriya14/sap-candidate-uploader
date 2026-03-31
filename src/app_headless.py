@@ -452,12 +452,12 @@ with st.expander("📝 Manage Your Email Signature"):
         sig_name = st.text_input("Full Name", value=st.session_state.sig_name, key="sig_name_input")
         sig_job_title = st.text_input(
             "Job Title", value=st.session_state.sig_job_title,
-            placeholder="e.g. Senior Delivery Head – Talent Acquisition",
+            placeholder="e.g. Senior recruiter",
             key="sig_job_title_input",
         )
         sig_phone = st.text_input(
             "Phone Number", value=st.session_state.sig_phone,
-            placeholder="e.g. +91 9323888227",
+            placeholder="e.g. +91 0000000000",
             key="sig_phone_input",
         )
 
