@@ -326,7 +326,7 @@ def _candidate_display_name(row: pd.Series) -> str:
     ).strip()
 
 
-st.set_page_config(page_title="Resume -> SAP Upload", layout="wide")
+st.set_page_config(page_title="New Records Submission", page_icon="📋", layout="wide")
 
 # =========================
 # AUTH
@@ -334,7 +334,7 @@ st.set_page_config(page_title="Resume -> SAP Upload", layout="wide")
 user = require_login()
 show_user_profile(user)
 
-st.title("Resume -> SAP Upload")
+st.title("New Records Submission")
 st.caption(f"Logged in as **{user['name']}** ({user['email']})")
 
 
@@ -708,6 +708,18 @@ else:
         "Expected CTC", "Notice Period", "Current Location", "Preferred Location",
         "Actual Status", "Call Iteration", "comments/Availability", "Error", "Upload to SAP", "File Name"
     ])
+
+# Convert stored jr_no → display format so SelectboxColumn accepts it as a valid option.
+# On save the cleanup step (save_table_changes) strips it back to just jr_no.
+if not df.empty and "JR Number" in df.columns:
+    def _jr_to_display(val):
+        jr = str(val or "").strip()
+        if jr and jr in jr_master_by_number:
+            skill = str(jr_master_by_number[jr].get("skill_name", "")).strip()
+            if skill:
+                return f"{jr} - {skill}"
+        return jr
+    df["JR Number"] = df["JR Number"].apply(_jr_to_display)
 
 df.index = df.index + 1
 df = df.reindex(
