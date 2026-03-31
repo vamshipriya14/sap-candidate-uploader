@@ -234,8 +234,8 @@ def _row_snapshot(row: dict) -> dict:
 def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
     # Build unique (JR Number, Email, Phone) set for all records (DB + current edited)
     # We use this to prevent duplicates
-    unique_keys = {} # key -> record_id (if exists in DB)
-    
+    unique_keys = {}  # key -> record_id (if exists in DB)
+
     # First, collect keys of already known records in the session
     for f_name, record_id in st.session_state.resume_record_ids.items():
         row_data = st.session_state.parsed_resume_rows.get(f_name, {})
@@ -244,7 +244,7 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
             str(row_data.get("Email", "")).strip(),
             str(row_data.get("Phone", "")).strip()
         )
-        if key[1] or key[2]: # Only if Email or Phone is non-empty
+        if key[1] or key[2]:  # Only if Email or Phone is non-empty
             unique_keys[key] = record_id
 
     for _, row in edited_df.iterrows():
@@ -252,54 +252,55 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
         file_name = str(row_dict.get("File Name", "")).strip()
         if not file_name:
             continue
-        
+
         # Check for duplicates (JR Number, Email, Phone)
         current_key = (
             str(row_dict.get("JR Number", "")).strip(),
             str(row_dict.get("Email", "")).strip(),
             str(row_dict.get("Phone", "")).strip()
         )
-        
+
         # If JR Number is empty, the user wants it to still be treated as a duplicate
         # if Email and Phone match an existing record WITH empty JR Number.
         # If multiple records have empty JR and same email/phone, they are duplicates.
-        
+
         # If current_key exists in another record, and this is a new record (no ID), skip it
         existing_id = unique_keys.get(current_key)
         record_id = st.session_state.resume_record_ids.get(file_name)
-        
+
         if existing_id and not record_id:
             # This is a duplicate of an existing record we already know about
             st.warning(f"Skipping duplicate record for {file_name} (already exists in DB/session)")
             continue
-        
+
         if not record_id:
-            # If we don't have an ID for THIS file_name, but we found an ID for the KEY, 
+            # If we don't have an ID for THIS file_name, but we found an ID for the KEY,
             # then THIS file_name is a duplicate.
             if existing_id:
-                 st.warning(f"Record for {file_name} matches an existing record. Linking to existing ID.")
-                 st.session_state.resume_record_ids[file_name] = existing_id
-                 record_id = existing_id
+                st.warning(f"Record for {file_name} matches an existing record. Linking to existing ID.")
+                st.session_state.resume_record_ids[file_name] = existing_id
+                record_id = existing_id
             else:
                 # Add to unique_keys so subsequent identical rows in this same loop are caught
                 unique_keys[current_key] = "PENDING"
 
         jr_folder = jr_folder_name(row_dict.get("JR Number", ""))
         current_link = st.session_state.resume_links.get(file_name, "")
-        
+
         # Check if we need to upload/move the file on shared drive
         if f"/{jr_folder}/" not in current_link:
             file_bytes = st.session_state.uploaded_files_store.get(file_name)
             if file_bytes:
                 previous_folder = "pending_jr" if "/pending_jr/" in current_link else ""
-                resume_link = upload_resume_to_shared_drive(user["access_token"], file_name, file_bytes, subfolder=jr_folder)
+                resume_link = upload_resume_to_shared_drive(user["access_token"], file_name, file_bytes,
+                                                            subfolder=jr_folder)
                 st.session_state.resume_links[file_name] = resume_link
                 if previous_folder and previous_folder != jr_folder:
                     delete_resume_from_shared_drive(user["access_token"], file_name, previous_folder)
                 current_link = resume_link
 
         snapshot = _row_snapshot(row_dict)
-        
+
         if record_id and record_id != "PENDING":
             # Update existing record if changed
             if st.session_state.resume_row_snapshots.get(file_name) != snapshot:
@@ -336,6 +337,7 @@ show_user_profile(user)
 st.title("Resume -> SAP Upload")
 st.caption(f"Logged in as **{user['name']}** ({user['email']})")
 
+
 # =========================
 # USER SIGNATURE
 # =========================
@@ -344,31 +346,100 @@ def _get_default_signature_template(user_dict: dict) -> str:
     job_title = user_dict.get("job_title") or "job_title"
     email = user_dict.get("email", "Email")
     phone = user_dict.get("phone") or "+91 0000000000"
-    
-    return f"""<table style="font-family: Arial, sans-serif; font-size: 14px; color: #333;">
-  <tr>
-    <td>
-      <strong style="font-size:16px; color:#000;">{name}</strong><br>
-      <span>{job_title}</span><br><br>
+    phone_digits = phone.replace(" ", "").replace("+", "")
 
-      <strong>Phone:</strong> <a href="tel:{phone.replace(' ', '')}">{phone}</a><br>
-      <strong>Email:</strong> <a href="mailto:{email}">{email}</a><br>
-      <strong>Website:</strong> <a href="http://www.volibits.com">www.volibits.com</a><br><br>
+    # Social icon URLs (using brand-colored SVG data URIs so no external hosting needed)
+    _li = "https://cdn-icons-png.flaticon.com/24/174/174857.png"
+    _ig = "https://cdn-icons-png.flaticon.com/24/2111/2111463.png"
+    _fb = "https://cdn-icons-png.flaticon.com/24/733/733547.png"
+    _x = "https://cdn-icons-png.flaticon.com/24/5969/5969020.png"
+    _yt = "https://cdn-icons-png.flaticon.com/24/1384/1384060.png"
 
-      <strong>Address:</strong><br>
-      203, A Wing, The Capital,<br>
-      Baner-Pashan Link Rd, Baner,<br>
-      Pune, MH, India – 411045<br><br>
+    return f"""<table border="0" cellspacing="0" cellpadding="0"
+        style="background:white; border-collapse:collapse; font-family:Arial,sans-serif; font-size:13px; color:#333;">
+  <tbody>
+    <tr>
+      <!-- LEFT COLUMN: Logo + Connect with us + Social icons -->
+      <td valign="middle" align="center"
+          style="padding:8px 14px 8px 8px;
+                 border-right:1.5px solid #595959;
+                 width:145px;">
+        <!-- Volibits logo (text fallback if image blocked) -->
+        <div style="font-size:22px; font-weight:900; color:#e8212a;
+                    letter-spacing:-1px; line-height:1; font-family:Arial Black,Arial,sans-serif;">
+          <span style="color:#e8212a;">V</span><span style="color:#333;">olibits</span>
+        </div>
+        <div style="font-size:8.5px; color:#5d5d5d; font-weight:700;
+                    margin-top:4px; margin-bottom:10px; letter-spacing:0.3px;">
+          Connect with us
+        </div>
+        <!-- Social icons row -->
+        <table border="0" cellspacing="0" cellpadding="0" style="margin:0 auto;">
+          <tr>
+            <td style="padding:0 2px;">
+              <a href="https://www.linkedin.com/company/volibits/" style="text-decoration:none;">
+                <img src="{_li}" width="19" height="19" alt="LinkedIn"
+                     style="display:block; border:0; border-radius:3px;">
+              </a>
+            </td>
+            <td style="padding:0 2px;">
+              <a href="https://www.instagram.com/volibits_llp/" style="text-decoration:none;">
+                <img src="{_ig}" width="19" height="19" alt="Instagram"
+                     style="display:block; border:0; border-radius:3px;">
+              </a>
+            </td>
+            <td style="padding:0 2px;">
+              <a href="https://www.facebook.com/Volibits/" style="text-decoration:none;">
+                <img src="{_fb}" width="19" height="19" alt="Facebook"
+                     style="display:block; border:0; border-radius:3px;">
+              </a>
+            </td>
+            <td style="padding:0 2px;">
+              <a href="https://x.com/VolibitsInd" style="text-decoration:none;">
+                <img src="{_x}" width="19" height="19" alt="X"
+                     style="display:block; border:0; border-radius:3px;">
+              </a>
+            </td>
+            <td style="padding:0 2px;">
+              <a href="https://www.youtube.com/channel/UCmSl5A2JfguK3PtcUdiI8-A" style="text-decoration:none;">
+                <img src="{_yt}" width="19" height="19" alt="YouTube"
+                     style="display:block; border:0; border-radius:3px;">
+              </a>
+            </td>
+          </tr>
+        </table>
+      </td>
 
-      <strong>Connect with us:</strong><br>
-      <a href="https://www.linkedin.com/company/volibits/">LinkedIn</a> |
-      <a href="https://www.instagram.com/volibits_llp/">Instagram</a> |
-      <a href="https://www.facebook.com/Volibits/">Facebook</a> |
-      <a href="https://x.com/VolibitsInd">X</a> |
-      <a href="https://www.youtube.com/channel/UCmSl5A2JfguK3PtcUdiI8-A">YouTube</a>
-    </td>
-  </tr>
+      <!-- RIGHT COLUMN: Name, title, contact details -->
+      <td valign="top" style="padding:8px 8px 8px 16px;">
+        <p style="margin:0 0 2px 0; font-size:15px; font-weight:700;
+                  color:#000; font-family:'Aptos Narrow',Arial,sans-serif;">
+          {name}
+        </p>
+        <p style="margin:0 0 8px 0; font-size:12px; color:#444;">
+          {job_title}
+        </p>
+        <p style="margin:0 0 3px 0; font-size:12px; color:#636363; font-weight:700;">
+          <a href="tel:+{phone_digits}" style="color:#0563C1; text-decoration:none;">
+            +91
+          </a>
+          <span style="color:#000;"> {phone.lstrip('+').lstrip('91').strip()}</span>
+          <span style="color:#636363;">&nbsp;|&nbsp;</span>
+          <a href="mailto:{email}" style="color:blue; text-decoration:underline;">{email}</a>
+        </p>
+        <p style="margin:0 0 3px 0; font-size:12px; font-weight:700;">
+          <a href="http://www.volibits.com/" style="color:#0058B9; text-decoration:underline;">
+            www.volibits.com
+          </a>
+        </p>
+        <p style="margin:0; font-size:12px; color:#636363; font-weight:700;">
+          203, A Wing, The Capital, Baner-Pashan Link Rd, Baner, Pune, MH, India - 411045
+        </p>
+      </td>
+    </tr>
+  </tbody>
 </table>"""
+
 
 if "user_signature" not in st.session_state:
     try:
@@ -665,46 +736,59 @@ if not db_df.empty:
         "recruiter_email": "recruiter_email",
     })
 
-filter_source_df = db_df.copy() if not db_df.empty else pd.DataFrame(columns=["Candidate Name", "JR Number", "Actual Status", "Call Iteration", "Upload to SAP"])
+filter_source_df = db_df.copy() if not db_df.empty else pd.DataFrame(
+    columns=["Candidate Name", "JR Number", "Actual Status", "Call Iteration", "Upload to SAP"])
 
 f1, f2, f3, f4, f5 = st.columns(5)
 with f1:
     candidate_filter = st.multiselect(
         "Candidate Name",
-        options=sorted(name for name in filter_source_df["Candidate Name"].unique() if name) if not filter_source_df.empty else [],
+        options=sorted(
+            name for name in filter_source_df["Candidate Name"].unique() if name) if not filter_source_df.empty else [],
     )
 with f2:
     jr_filter_values = st.multiselect(
         "JR Number",
-        options=sorted(value for value in filter_source_df["JR Number"].fillna("").astype(str).str.strip().unique() if value) if not filter_source_df.empty else [],
+        options=sorted(value for value in filter_source_df["JR Number"].fillna("").astype(str).str.strip().unique() if
+                       value) if not filter_source_df.empty else [],
     )
 with f3:
     actual_status_filter = st.multiselect(
         "Call Status",
-        options=sorted(value for value in filter_source_df["Actual Status"].fillna("").astype(str).str.strip().unique() if value) if not filter_source_df.empty else [],
+        options=sorted(
+            value for value in filter_source_df["Actual Status"].fillna("").astype(str).str.strip().unique() if
+            value) if not filter_source_df.empty else [],
     )
 with f4:
     call_iteration_filter = st.multiselect(
         "Call Iteration",
-        options=sorted(value for value in filter_source_df["Call Iteration"].fillna("").astype(str).str.strip().unique() if value) if not filter_source_df.empty else [],
+        options=sorted(
+            value for value in filter_source_df["Call Iteration"].fillna("").astype(str).str.strip().unique() if
+            value) if not filter_source_df.empty else [],
     )
 with f5:
     upload_filter = st.multiselect(
         "Upload to SAP",
-        options=sorted(value for value in filter_source_df["Upload to SAP"].fillna("").astype(str).str.strip().unique() if value) if not filter_source_df.empty else [],
+        options=sorted(
+            value for value in filter_source_df["Upload to SAP"].fillna("").astype(str).str.strip().unique() if
+            value) if not filter_source_df.empty else [],
     )
 
 filtered_db_df = filter_source_df.copy()
 if candidate_filter:
     filtered_db_df = filtered_db_df[filtered_db_df["Candidate Name"].isin(candidate_filter)]
 if jr_filter_values:
-    filtered_db_df = filtered_db_df[filtered_db_df["JR Number"].fillna("").astype(str).str.strip().isin(jr_filter_values)]
+    filtered_db_df = filtered_db_df[
+        filtered_db_df["JR Number"].fillna("").astype(str).str.strip().isin(jr_filter_values)]
 if actual_status_filter:
-    filtered_db_df = filtered_db_df[filtered_db_df["Actual Status"].fillna("").astype(str).str.strip().isin(actual_status_filter)]
+    filtered_db_df = filtered_db_df[
+        filtered_db_df["Actual Status"].fillna("").astype(str).str.strip().isin(actual_status_filter)]
 if call_iteration_filter:
-    filtered_db_df = filtered_db_df[filtered_db_df["Call Iteration"].fillna("").astype(str).str.strip().isin(call_iteration_filter)]
+    filtered_db_df = filtered_db_df[
+        filtered_db_df["Call Iteration"].fillna("").astype(str).str.strip().isin(call_iteration_filter)]
 if upload_filter:
-    filtered_db_df = filtered_db_df[filtered_db_df["Upload to SAP"].fillna("").astype(str).str.strip().isin(upload_filter)]
+    filtered_db_df = filtered_db_df[
+        filtered_db_df["Upload to SAP"].fillna("").astype(str).str.strip().isin(upload_filter)]
 
 with st.expander("Searchable Database Records - Add to Main Table", expanded=False):
     if filtered_db_df.empty:
@@ -717,12 +801,12 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
             "Expected CTC", "Notice Period", "Current Location", "Preferred Location",
             "Actual Status", "Call Iteration", "comments/Availability", "Error", "Upload to SAP", "File Name"
         ]
-        
+
         # Add selection column
         filtered_db_df["Select"] = False
         avail_cols = [c for c in display_cols if c in filtered_db_df.columns]
         select_cols = ["Select"] + avail_cols
-        
+
         # Display table (recruiter columns are not in display_cols)
         db_editor = st.data_editor(
             filtered_db_df[select_cols],
@@ -732,7 +816,7 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
             disabled=avail_cols,
             key="db_records_editor"
         )
-        
+
         if st.button("Add Selected Records to Main Table"):
             selected_rows_indices = db_editor[db_editor["Select"] == True].index
             selected_rows = filtered_db_df.loc[selected_rows_indices]
@@ -743,28 +827,30 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
                     file_name = str(row.get("File Name", "")).strip()
                     if not file_name:
                         file_name = f"db_record_{row.get('id', 'unknown')}"
-                    
+
                     # Store link and record ID for added records
                     # Search in original st.session_state.db_resume_records
                     original_record = None
                     # We need a way to find the ID. Let's include ID in the filtered_db_df but hide it if needed
                     # For now, let's assume 'id' is in filtered_db_df
                     if 'id' in row:
-                        original_record = next((r for r in st.session_state.db_resume_records if str(r.get("id")) == str(row.get("id"))), {})
-                    
+                        original_record = next(
+                            (r for r in st.session_state.db_resume_records if str(r.get("id")) == str(row.get("id"))),
+                            {})
+
                     if original_record:
                         st.session_state.resume_record_ids[file_name] = str(original_record.get("id", ""))
                         st.session_state.resume_links[file_name] = original_record.get("resume_link", "")
-                    
+
                     row_data = row.to_dict()
                     row_data.pop("Select", None)
                     row_data["File Name"] = file_name
-                    
+
                     # Ensure it's in parsed_resume_rows so main table shows it
                     st.session_state.parsed_resume_rows[file_name] = row_data
                     # Snapshot it so it doesn't trigger immediate sync unless changed
                     st.session_state.resume_row_snapshots[file_name] = _row_snapshot(row_data)
-                    
+
                 st.success(f"Added {len(selected_rows)} record(s) to the table below.")
                 st.rerun()
 
@@ -827,7 +913,8 @@ with st.form("resume_editor_form"):
 if save_table_changes:
     editor_df = editor_df.dropna(how="all")
     editor_df = editor_df[
-        ~(editor_df[["First Name", "Last Name", "Email", "Phone"]].fillna("").apply(lambda x: x.str.strip()).eq("").all(axis=1))
+        ~(editor_df[["First Name", "Last Name", "Email", "Phone"]].fillna("").apply(lambda x: x.str.strip()).eq("").all(
+            axis=1))
     ]
 
     for _, row in editor_df.iterrows():
@@ -857,7 +944,8 @@ all_rows_df.index = all_rows_df.index + 1
 all_rows_df = all_rows_df.reindex(columns=df.columns)
 edited_df = all_rows_df.dropna(how="all")
 edited_df = edited_df[
-    ~(edited_df[["First Name", "Last Name", "Email", "Phone"]].fillna("").apply(lambda x: x.str.strip()).eq("").all(axis=1))
+    ~(edited_df[["First Name", "Last Name", "Email", "Phone"]].fillna("").apply(lambda x: x.str.strip()).eq("").all(
+        axis=1))
 ]
 
 if edited_df.empty:
@@ -911,7 +999,7 @@ if st.button("Upload", type="primary", width="stretch"):
         & (edited_df["First Name"].fillna("").str.strip() != "")
         & (edited_df["Email"].fillna("").str.strip() != "")
         & (edited_df["JR Number"].fillna("").str.strip() != "")
-    ]
+        ]
 
     if upload_rows.empty:
         st.error("No valid rows with JR Number to upload")
@@ -925,9 +1013,9 @@ if st.session_state.pending_upload_rows and not st.session_state.upload_confirme
     st.warning("Confirm the candidates below before SAP upload.")
     confirm_df = pd.DataFrame(st.session_state.pending_upload_rows)
     confirm_df["Candidate Name"] = (
-        confirm_df["First Name"].fillna("").astype(str).str.strip()
-        + " "
-        + confirm_df["Last Name"].fillna("").astype(str).str.strip()
+            confirm_df["First Name"].fillna("").astype(str).str.strip()
+            + " "
+            + confirm_df["Last Name"].fillna("").astype(str).str.strip()
     ).str.strip()
     st.dataframe(confirm_df[["Candidate Name", "JR Number"]], width="stretch", hide_index=True)
     confirm_col, cancel_col = st.columns(2)
@@ -971,22 +1059,25 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                     resume_link = st.session_state.resume_links.get(row["File Name"])
                     if resume_link:
                         import requests
+
                         # We need access token if it's a Microsoft Graph link
                         headers = {}
                         if "sharepoint.com" in resume_link or "graph.microsoft.com" in resume_link:
                             import base64
+
                             share_token = f"u!{base64.urlsafe_b64encode(resume_link.encode('utf-8')).decode('utf-8').rstrip('=')}"
                             graph_url = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem/content"
                             headers["Authorization"] = f"Bearer {user['access_token']}"
                             resp = requests.get(graph_url, headers=headers, timeout=30)
                         else:
                             resp = requests.get(resume_link, headers=headers, timeout=30)
-                        
+
                         if resp.status_code == 200:
                             file_bytes = resp.content
                             st.session_state.uploaded_files_store[row["File Name"]] = file_bytes
                         else:
-                            raise Exception(f"Failed to download resume from link: {resume_link} (Status {resp.status_code})")
+                            raise Exception(
+                                f"Failed to download resume from link: {resume_link} (Status {resp.status_code})")
                     else:
                         raise Exception("File bytes not found in session and no resume link available")
 
@@ -1054,7 +1145,8 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                                 )
 
                         candidate_name = " ".join(
-                            part for part in [str(row.get("First Name", "")).strip(), str(row.get("Last Name", "")).strip()] if part
+                            part for part in
+                            [str(row.get("First Name", "")).strip(), str(row.get("Last Name", "")).strip()] if part
                         ).strip()
                         screenshot_name = (
                             f"{_safe_attachment_part(jr_number, 'unknown_jr')}_"
@@ -1228,7 +1320,7 @@ if not st.session_state.email_drafts_df.empty:
     if not st.session_state.email_candidates_df.empty:
         candidate_rows = st.session_state.email_candidates_df[
             st.session_state.email_candidates_df["JR Number"].fillna("").astype(str).str.strip() == jr_filter
-        ].to_dict(orient="records")
+            ].to_dict(orient="records")
 
     body_text = str(draft_row.get("Email Body", "")).strip()
     preview_lines = [
@@ -1255,7 +1347,7 @@ if not st.session_state.email_drafts_df.empty:
             file_bytes = st.session_state.uploaded_files_store.get(file_name)
             if file_bytes:
                 attachment_items.append({"name": file_name, "content": file_bytes})
-        
+
         # Ensure signature is in user dict for send_client_email
         user_to_send = dict(user)
         if st.session_state.get("user_signature"):
