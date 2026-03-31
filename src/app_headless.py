@@ -5,7 +5,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
-from auth import require_login, show_user_profile
+from auth import require_login, show_navigation, show_user_profile
 from notifier import send_client_email, send_upload_notification
 from resume_parser import parse_resume
 from resume_repository import (
@@ -326,15 +326,16 @@ def _candidate_display_name(row: pd.Series) -> str:
     ).strip()
 
 
-st.set_page_config(page_title="New Records Submission", page_icon="📋", layout="wide")
+st.set_page_config(page_title="Candidate Submission ATS", page_icon="📋", layout="wide")
 
 # =========================
 # AUTH
 # =========================
 user = require_login()
 show_user_profile(user)
+show_navigation("new_records")
 
-st.title("New Records Submission")
+st.title("Candidate Submission ATS")
 st.caption(f"Logged in as **{user['name']}** ({user['email']})")
 
 
@@ -582,6 +583,51 @@ try:
     st.session_state.db_resume_records = fetch_all_resume_records()
 except Exception as e:
     st.warning(f"Could not fetch database records: {e}")
+
+# =========================
+# GREETING & STATS DASHBOARD
+# =========================
+_today_str = date.today().strftime("%d-%b-%Y")
+_all_records = st.session_state.db_resume_records
+
+# Overall stats
+_total       = len(_all_records)
+_uploaded    = sum(1 for r in _all_records if str(r.get("upload_to_sap", "")).strip() == "Done")
+_pending     = sum(1 for r in _all_records if str(r.get("upload_to_sap", "")).strip() not in ("Done", "No"))
+_email_sent  = sum(1 for r in _all_records if str(r.get("client_email_sent", "No")).strip() in ("Yes", "yes", "1", "true"))
+
+# Today stats — match on date_text field stored as "31-Mar-2026"
+_today_records    = [r for r in _all_records if str(r.get("date_text", "")).strip() == _today_str]
+_today_total      = len(_today_records)
+_today_uploaded   = sum(1 for r in _today_records if str(r.get("upload_to_sap", "")).strip() == "Done")
+_today_pending    = sum(1 for r in _today_records if str(r.get("upload_to_sap", "")).strip() not in ("Done", "No"))
+_today_email_sent = sum(1 for r in _today_records if str(r.get("client_email_sent", "No")).strip() in ("Yes", "yes", "1", "true"))
+
+_first_name = pretty_user_name(user).split()[0] if pretty_user_name(user) else "there"
+
+st.markdown(f"## 👋 Welcome back, {_first_name}!")
+st.caption(f"Today is **{date.today().strftime('%A, %d %B %Y')}**")
+st.divider()
+
+_ov_col, _td_col = st.columns(2)
+
+with _ov_col:
+    st.markdown("#### 📊 Overall")
+    _c1, _c2, _c3, _c4 = st.columns(4)
+    _c1.metric("Total Candidates", f"{_total:,}")
+    _c2.metric("Uploaded to SAP", f"{_uploaded:,}")
+    _c3.metric("Pending Upload", f"{_pending:,}")
+    _c4.metric("Emails Sent", f"{_email_sent:,}")
+
+with _td_col:
+    st.markdown("#### 🗓️ Today")
+    _t1, _t2, _t3, _t4 = st.columns(4)
+    _t1.metric("Total Candidates", f"{_today_total:,}")
+    _t2.metric("Uploaded to SAP", f"{_today_uploaded:,}")
+    _t3.metric("Pending Upload", f"{_today_pending:,}")
+    _t4.metric("Emails Sent", f"{_today_email_sent:,}")
+
+st.divider()
 
 # =========================
 # FILE UPLOAD & PARSE

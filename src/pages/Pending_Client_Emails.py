@@ -12,7 +12,7 @@ import streamlit.components.v1 as components
 # Ensure src/ is on the path when running as a page
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from auth import require_login, show_user_profile
+from auth import require_login, show_navigation, show_user_profile
 from notifier import send_client_email
 from resume_repository import (
     fetch_active_jr_master,
@@ -22,10 +22,11 @@ from resume_repository import (
     save_user_signature,
 )
 
-st.set_page_config(page_title="Pending Client Emails", layout="wide")
+st.set_page_config(page_title="Pending Client Emails", page_icon="📧", layout="wide")
 
 user = require_login()
 show_user_profile(user)
+show_navigation("pending_emails")
 
 st.title("Pending Client Emails")
 st.caption(f"Logged in as **{user['name']}** ({user['email']})")

@@ -225,6 +225,49 @@ def logout():
 # =========================
 # 🔹 USER PROFILE WIDGET
 # =========================
+def show_navigation(current_page: str) -> None:
+    """
+    Renders page navigation buttons in the sidebar.
+    current_page: 'new_records' or 'pending_emails'
+    """
+    # CSS: make the active-page button look like a primary/red button
+    st.sidebar.markdown(
+        """
+        <style>
+        div[data-testid="stSidebarContent"] .nav-active button {
+            background-color: #E03C3C !important;
+            color: white !important;
+            border: none !important;
+        }
+        div[data-testid="stSidebarContent"] .nav-active button:hover {
+            background-color: #c03030 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.sidebar:
+        st.markdown("#### 📋 Actions")
+        # New Records Submission
+        if current_page == "new_records":
+            st.markdown('<div class="nav-active">', unsafe_allow_html=True)
+        if st.button("📄 Resume Pipeline", use_container_width=True, key="nav_new_records"):
+            st.switch_page("app_headless.py")
+        if current_page == "new_records":
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # Pending Client Emails
+        if current_page == "pending_emails":
+            st.markdown('<div class="nav-active">', unsafe_allow_html=True)
+        if st.button("📧 Client Emails", use_container_width=True, key="nav_pending_emails"):
+            st.switch_page("pages/Pending_Client_Emails.py")
+        if current_page == "pending_emails":
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("---")
+
+
 def show_user_profile(user: dict):
     """Renders a compact profile card in the sidebar."""
     with st.sidebar:
