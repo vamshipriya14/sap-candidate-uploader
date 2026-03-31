@@ -346,64 +346,58 @@ def _get_default_signature_template(user_dict: dict) -> str:
     job_title = user_dict.get("job_title") or "job_title"
     email = user_dict.get("email", "Email")
     phone = user_dict.get("phone") or "+91 0000000000"
-    phone_digits = phone.replace(" ", "").replace("+", "")
 
-    # Social icon URLs (using brand-colored SVG data URIs so no external hosting needed)
-    _li = "https://cdn-icons-png.flaticon.com/24/174/174857.png"
-    _ig = "https://cdn-icons-png.flaticon.com/24/2111/2111463.png"
-    _fb = "https://cdn-icons-png.flaticon.com/24/733/733547.png"
-    _x = "https://cdn-icons-png.flaticon.com/24/5969/5969020.png"
-    _yt = "https://cdn-icons-png.flaticon.com/24/1384/1384060.png"
+    # All icons are base64-encoded SVGs — no external requests, works in all email clients
+    _logo = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNDAgNDQiIHdpZHRoPSIxNDAiIGhlaWdodD0iNDQiPgogIDxyZWN0IHdpZHRoPSIxNDAiIGhlaWdodD0iNDQiIGZpbGw9IndoaXRlIi8+CiAgPHBvbHlnb24gcG9pbnRzPSI0LDYgMTgsNiAyNiwyOCAzNCw2IDQ4LDYgMzAsMzggMjIsMzgiIGZpbGw9IiNlODIxMmEiLz4KICA8dGV4dCB4PSI1MCIgeT0iMzAiIGZvbnQtZmFtaWx5PSJBcmlhbCBCbGFjayxBcmlhbCxzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iOTAwIiBmb250LXNpemU9IjIyIiBmaWxsPSIjMWExYTFhIj5vbGliaXRzPC90ZXh0Pgo8L3N2Zz4="
+    _li = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0Ij4KICA8cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI0IiBmaWxsPSIjMEE2NkMyIi8+CiAgPHBhdGggZD0iTTcuNSA5LjVoLTJ2N2gydi03em0tMS0zLjJhMS4yIDEuMiAwIDEgMCAwIDIuNCAxLjIgMS4yIDAgMCAwIDAtMi40em05LjUgM2MtMS4yIDAtMiAuNi0yLjMgMS4yVjkuNUgxMnY3aDEuN3YtMy43YzAtLjguMS0xLjYgMS4yLTEuNiAxIDAgMS4xLjkgMS4xIDEuNnYzLjdIMTh2LTQuMWMwLTItLjktMy4xLTIuNS0zLjF6IiBmaWxsPSIjZmZmIi8+Cjwvc3ZnPg=="
+    _ig = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0Ij4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iaWciIHgxPSIwJSIgeTE9IjEwMCUiIHgyPSIxMDAlIiB5Mj0iMCUiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdHlsZT0ic3RvcC1jb2xvcjojZjlhODI1Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iNTAlIiBzdHlsZT0ic3RvcC1jb2xvcjojZTkxZThjIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3R5bGU9InN0b3AtY29sb3I6IzZhMWFkYiIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiByeD0iNSIgZmlsbD0idXJsKCNpZykiLz4KICA8cmVjdCB4PSI2IiB5PSI2IiB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHJ4PSIzLjUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4KICA8Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIzIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMS41Ii8+CiAgPGNpcmNsZSBjeD0iMTYuMiIgY3k9IjcuOCIgcj0iMC45IiBmaWxsPSIjZmZmIi8+Cjwvc3ZnPg=="
+    _fb = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0Ij4KICA8Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMiIgZmlsbD0iIzE4NzdGMiIvPgogIDxwYXRoIGQ9Ik0xNS42IDcuOGgtMS40Yy0uNSAwLS43LjMtLjcuOHYxLjJoMmwtLjMgMi4yaC0xLjdWMThoLTIuNHYtNkgxMHYtMi4yaDEuMVY4LjRDMTEuMSA2LjYgMTIuMSA2IDEzLjcgNmMuNyAwIDEuOS4xIDEuOS4xdjJ6IiBmaWxsPSIjZmZmIi8+Cjwvc3ZnPg=="
+    _x = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0Ij4KICA8cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI0IiBmaWxsPSIjMDAwIi8+CiAgPHBhdGggZD0iTTEzLjUgMTEuMUwxNy44IDZoLTFsLTMuNyA0LjNMMTAuMSA2SDYuNWw0LjUgNi42TDYuNSAxOGgxbDQtNC42IDMuMiA0LjZoMy42bC00LjgtNi45em0tMS40IDEuNmwtLjUtLjctMy43LTUuM2gxLjZsMyA0LjMuNS43IDMuOCA1LjRoLTEuNmwtMy4xLTQuNHoiIGZpbGw9IiNmZmYiLz4KPC9zdmc+"
+    _yt = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0Ij4KICA8cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI0IiBmaWxsPSIjRkYwMDAwIi8+CiAgPHBhdGggZD0iTTE5LjYgNy44cy0uMi0xLjMtLjgtMS45Yy0uNy0uOC0xLjYtLjgtMi0uOUMxNC43IDUgMTIgNSAxMiA1cy0yLjcgMC00LjguMmMtLjQuMS0xLjMuMS0yIC45LS42LjYtLjggMS45LS44IDEuOVM0LjIgOS4yIDQuMiAxMC43djEuNGMwIDEuNC4yIDIuOC4yIDIuOHMuMiAxLjMuOCAxLjljLjcuOCAxLjcuNyAyLjIuOEM4LjggMTcuNyAxMiAxNy43IDEyIDE3LjdzMi43IDAgNC44LS4zYy40LS4xIDEuMy0uMSAyLS45LjYtLjYuOC0xLjkuOC0xLjlzLjItMS40LjItMi44di0xLjRDMTkuOCA5LjIgMTkuNiA3LjggMTkuNiA3Ljh6bS0xMS4xIDUuOVY5LjVsNS40IDIuMS01LjQgMi4xeiIgZmlsbD0iI2ZmZiIvPgo8L3N2Zz4="
 
     return f"""<table border="0" cellspacing="0" cellpadding="0"
         style="background:white; border-collapse:collapse; font-family:Arial,sans-serif; font-size:13px; color:#333;">
   <tbody>
     <tr>
-      <!-- LEFT COLUMN: Logo + Connect with us + Social icons -->
+      <!-- LEFT COLUMN: Logo + Connect with us + Social icons (all embedded, no external requests) -->
       <td valign="middle" align="center"
-          style="padding:8px 14px 8px 8px;
-                 border-right:1.5px solid #595959;
-                 width:145px;">
-        <!-- Volibits logo (text fallback if image blocked) -->
-        <div style="font-size:22px; font-weight:900; color:#e8212a;
-                    letter-spacing:-1px; line-height:1; font-family:Arial Black,Arial,sans-serif;">
-          <span style="color:#e8212a;">V</span><span style="color:#333;">olibits</span>
-        </div>
+          style="padding:8px 14px 8px 8px; border-right:1.5px solid #595959; width:150px;">
+        <img src="{_logo}" width="122" height="39" alt="Volibits"
+             style="display:block; border:0; margin:0 auto 6px auto;">
         <div style="font-size:8.5px; color:#5d5d5d; font-weight:700;
-                    margin-top:4px; margin-bottom:10px; letter-spacing:0.3px;">
+                    margin-bottom:8px; letter-spacing:0.3px;">
           Connect with us
         </div>
-        <!-- Social icons row -->
         <table border="0" cellspacing="0" cellpadding="0" style="margin:0 auto;">
           <tr>
             <td style="padding:0 2px;">
               <a href="https://www.linkedin.com/company/volibits/" style="text-decoration:none;">
                 <img src="{_li}" width="19" height="19" alt="LinkedIn"
-                     style="display:block; border:0; border-radius:3px;">
+                     style="display:block; border:0;">
               </a>
             </td>
             <td style="padding:0 2px;">
               <a href="https://www.instagram.com/volibits_llp/" style="text-decoration:none;">
                 <img src="{_ig}" width="19" height="19" alt="Instagram"
-                     style="display:block; border:0; border-radius:3px;">
+                     style="display:block; border:0;">
               </a>
             </td>
             <td style="padding:0 2px;">
               <a href="https://www.facebook.com/Volibits/" style="text-decoration:none;">
                 <img src="{_fb}" width="19" height="19" alt="Facebook"
-                     style="display:block; border:0; border-radius:3px;">
+                     style="display:block; border:0;">
               </a>
             </td>
             <td style="padding:0 2px;">
               <a href="https://x.com/VolibitsInd" style="text-decoration:none;">
                 <img src="{_x}" width="19" height="19" alt="X"
-                     style="display:block; border:0; border-radius:3px;">
+                     style="display:block; border:0;">
               </a>
             </td>
             <td style="padding:0 2px;">
               <a href="https://www.youtube.com/channel/UCmSl5A2JfguK3PtcUdiI8-A" style="text-decoration:none;">
                 <img src="{_yt}" width="19" height="19" alt="YouTube"
-                     style="display:block; border:0; border-radius:3px;">
+                     style="display:block; border:0;">
               </a>
             </td>
           </tr>
@@ -416,14 +410,11 @@ def _get_default_signature_template(user_dict: dict) -> str:
                   color:#000; font-family:'Aptos Narrow',Arial,sans-serif;">
           {name}
         </p>
-        <p style="margin:0 0 8px 0; font-size:12px; color:#444;">
+        <p style="margin:0 0 10px 0; font-size:12px; color:#444;">
           {job_title}
         </p>
         <p style="margin:0 0 3px 0; font-size:12px; color:#636363; font-weight:700;">
-          <a href="tel:+{phone_digits}" style="color:#0563C1; text-decoration:none;">
-            +91
-          </a>
-          <span style="color:#000;"> {phone.lstrip('+').lstrip('91').strip()}</span>
+          <a href="tel:{phone.replace(' ', '')}" style="color:#0563C1; text-decoration:none;">{phone}</a>
           <span style="color:#636363;">&nbsp;|&nbsp;</span>
           <a href="mailto:{email}" style="color:blue; text-decoration:underline;">{email}</a>
         </p>
@@ -458,13 +449,26 @@ with st.expander("📝 Manage Your Email Signature"):
         height=150,
         help="This signature will be appended to the emails sent to clients.",
     )
-    if st.button("Save Signature"):
-        try:
-            save_user_signature(user["email"], new_sig)
-            st.session_state.user_signature = new_sig
-            st.success("Signature saved successfully!")
-        except Exception as e:
-            st.error(f"Failed to save signature: {e}")
+    sig_col1, sig_col2 = st.columns(2)
+    with sig_col1:
+        if st.button("Save Signature", use_container_width=True):
+            try:
+                save_user_signature(user["email"], new_sig)
+                st.session_state.user_signature = new_sig
+                st.success("Signature saved successfully!")
+            except Exception as e:
+                st.error(f"Failed to save signature: {e}")
+    with sig_col2:
+        if st.button("Reset to Default", use_container_width=True,
+                     help="Restore the standard Volibits signature template"):
+            try:
+                default_sig = _get_default_signature_template(user)
+                save_user_signature(user["email"], default_sig)
+                st.session_state.user_signature = default_sig
+                st.success("Signature reset to default!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to reset signature: {e}")
 
 try:
     jr_master_rows = fetch_active_jr_master()
