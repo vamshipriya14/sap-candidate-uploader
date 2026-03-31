@@ -24,6 +24,14 @@ from resume_repository import (
 
 st.set_page_config(page_title="Pending Client Emails", page_icon="📧", layout="wide")
 
+# 🔥 HIDE DEFAULT STREAMLIT PAGE NAVIGATION
+st.markdown("""
+<style>
+[data-testid="stSidebarNav"] {
+    display: none;
+}
+</style>
+""", unsafe_allow_html=True)
 user = require_login()
 show_user_profile(user)
 show_navigation("pending_emails")

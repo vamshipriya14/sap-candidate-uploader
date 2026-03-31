@@ -325,10 +325,16 @@ def _candidate_display_name(row: pd.Series) -> str:
         part for part in [str(row.get("First Name", "")).strip(), str(row.get("Last Name", "")).strip()] if part
     ).strip()
 
-
 st.set_page_config(page_title="VoliATS", layout="wide")
 
-
+# 🔥 HIDE DEFAULT STREAMLIT PAGE NAVIGATION
+st.markdown("""
+<style>
+[data-testid="stSidebarNav"] {
+    display: none;
+}
+</style>
+""", unsafe_allow_html=True)
 # =========================
 # AUTH
 # =========================
@@ -744,7 +750,6 @@ def _mini_stats_row(label: str, icon: str,
 with st.expander("📊 Stats Dashboard", expanded=True):
     _range_label = f"{_stats_date_from.strftime('%d %b')} – {_stats_date_to.strftime('%d %b %Y')}"
     _rec_label = _stats_recruiter if _stats_recruiter != "All Recruiters" else "All Recruiters"
-    st.caption(f"Showing: **{_rec_label}** · {_range_label}")
     _mini_stats_row(
         "Period Total", "📊",
         _total, _uploaded, _pending, _email_sent,
