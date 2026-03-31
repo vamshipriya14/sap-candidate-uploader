@@ -95,28 +95,27 @@ def show_login_page():
     col1, col2, col3 = st.columns([1, 2, 1])
 
     with col2:
-        st.markdown(
-            """
-            <div style="
-                background-color:#0e1117;
-                padding:25px;
-                border-radius:12px;
-                border:1px solid #262730;
-            ">
-            """,
-            unsafe_allow_html=True
-        )
-
-        st.markdown("### 🚀 What you can do")
-
         st.markdown("""
-        - 📤 Upload resumes & auto-parse details  
-        - ✏️ Track candidate pipeline  
-        - 📊 Manage records efficiently  
-        - 📤 Upload directly to SAP  
-        - 📧 Send recruiter emails  
-        - 🔐 Secure Microsoft SSO login  
-        """)
+        <div style="
+            background-color:#0e1117;
+            padding:25px;
+            border-radius:12px;
+            border:1px solid #262730;
+        ">
+
+        <h3>🚀 What you can do</h3>
+
+        <ul>
+        <li>📤 Upload resumes & auto-parse details</li>
+        <li>✏️ Track candidate pipeline</li>
+        <li>📊 Manage records efficiently</li>
+        <li>📤 Upload directly to SAP</li>
+        <li>📧 Send recruiter emails</li>
+        <li>🔐 Secure Microsoft SSO login</li>
+        </ul>
+
+        </div>
+        """, unsafe_allow_html=True)
 
         st.markdown("---")
 

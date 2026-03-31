@@ -333,9 +333,10 @@ st.set_page_config(page_title="VoliATS", layout="wide")
 # AUTH
 # =========================
 user = require_login()
-show_login_page()
 show_user_profile(user)
-show_navigation("add")
+
+st.set_page_config(page_title="app headless", page_icon="📤", layout="wide")
+show_navigation("Candidate Submission")
 
 st.markdown("## 📊 VoliATS")
 st.markdown("##### Candidate Submission Pipeline")
