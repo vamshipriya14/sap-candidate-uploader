@@ -333,10 +333,8 @@ st.set_page_config(page_title="Candidate Submission ATS", page_icon="📋", layo
 # =========================
 user = require_login()
 show_user_profile(user)
-show_navigation("new_records")
 
-st.title("Candidate Submission ATS")
-st.caption(f"Logged in as **{user['name']}** ({user['email']})")
+
 
 
 # =========================
@@ -603,29 +601,73 @@ _today_uploaded   = sum(1 for r in _today_records if str(r.get("upload_to_sap", 
 _today_pending    = sum(1 for r in _today_records if str(r.get("upload_to_sap", "")).strip() not in ("Done", "No"))
 _today_email_sent = sum(1 for r in _today_records if str(r.get("client_email_sent", "No")).strip() in ("Yes", "yes", "1", "true"))
 
-_first_name = pretty_user_name(user).split()[0] if pretty_user_name(user) else "there"
-
-st.markdown(f"## 👋 Welcome back, {_first_name}!")
-st.caption(f"Today is **{date.today().strftime('%A, %d %B %Y')}**")
+# ── Header ──────────────────────────────────────────────────────────────────
+st.markdown(
+    """
+    <div style="text-align:center; padding: 8px 0 4px 0;">
+      <div style="font-size:2.4rem; font-weight:800; letter-spacing:-0.5px; color:#FFFFFF;">
+        Welcome to VoliATS
+      </div>
+      <div style="font-size:1.15rem; font-weight:500; color:#aaaaaa; margin-top:4px;">
+        Candidate Submission
+      </div>
+      <div style="font-size:0.78rem; color:#666; margin-top:6px;">
+        {date_str} &nbsp;·&nbsp; {user_email}
+      </div>
+    </div>
+    """.format(
+        date_str=date.today().strftime("%A, %d %B %Y"),
+        user_email=user.get("email", ""),
+    ),
+    unsafe_allow_html=True,
+)
 st.divider()
 
-_ov_col, _td_col = st.columns(2)
+# ── Stats card helper ────────────────────────────────────────────────────────
+def _stat_card(label: str, value, bg: str, text: str = "#ffffff") -> str:
+    return (
+        f"<div style='background:{bg}; border-radius:10px; padding:14px 10px; "
+        f"text-align:center; flex:1; min-width:0;'>"
+        f"<div style='font-size:1.55rem; font-weight:700; color:{text};'>{value:,}</div>"
+        f"<div style='font-size:0.72rem; color:{text}; opacity:0.85; margin-top:3px;'>{label}</div>"
+        f"</div>"
+    )
 
-with _ov_col:
-    st.markdown("#### 📊 Overall")
-    _c1, _c2, _c3, _c4 = st.columns(4)
-    _c1.metric("Total Candidates", f"{_total:,}")
-    _c2.metric("Uploaded to SAP", f"{_uploaded:,}")
-    _c3.metric("Pending Upload", f"{_pending:,}")
-    _c4.metric("Emails Sent", f"{_email_sent:,}")
+def _stats_row(label: str, icon: str,
+               total, uploaded, pending, emails,
+               row_bg: str,
+               colors: tuple) -> None:
+    c_total, c_up, c_pend, c_email = colors
+    st.markdown(
+        f"""
+        <div style="background:{row_bg}; border-radius:12px; padding:14px 18px; margin-bottom:12px;">
+          <div style="font-size:0.85rem; font-weight:700; color:#ccc;
+                      margin-bottom:10px; letter-spacing:0.4px;">
+            {icon}&nbsp; {label}
+          </div>
+          <div style="display:flex; gap:10px;">
+            {_stat_card("Total Candidates", total,   c_total)}
+            {_stat_card("Uploaded to SAP",  uploaded, c_up)}
+            {_stat_card("Pending Upload",   pending,  c_pend)}
+            {_stat_card("Emails Sent",      emails,   c_email)}
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-with _td_col:
-    st.markdown("#### 🗓️ Today")
-    _t1, _t2, _t3, _t4 = st.columns(4)
-    _t1.metric("Total Candidates", f"{_today_total:,}")
-    _t2.metric("Uploaded to SAP", f"{_today_uploaded:,}")
-    _t3.metric("Pending Upload", f"{_today_pending:,}")
-    _t4.metric("Emails Sent", f"{_today_email_sent:,}")
+_stats_row(
+    "Overall", "📊",
+    _total, _uploaded, _pending, _email_sent,
+    row_bg="#1a1f2e",
+    colors=("#2563eb", "#16a34a", "#d97706", "#7c3aed"),
+)
+_stats_row(
+    "Today", "🗓️",
+    _today_total, _today_uploaded, _today_pending, _today_email_sent,
+    row_bg="#0f1a14",
+    colors=("#0284c7", "#15803d", "#b45309", "#6d28d9"),
+)
 
 st.divider()
 
