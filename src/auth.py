@@ -58,32 +58,91 @@ def show_login_page():
         st.error("Missing Streamlit SSO secrets. Configure ST_AZURE_TENANT_ID, ST_AZURE_CLIENT_ID, ST_AZURE_CLIENT_SECRET, and ST_AZURE_REDIRECT_URI.")
         st.stop()
 
-    st.markdown("""
-        <div style='text-align:center; padding: 60px 0 20px'>
-            <h1>📄 Resume → SAP Upload</h1>
-            <p style='color: gray; font-size: 16px'>Sign in with your Microsoft account to continue</p>
+    # -----------------------
+    # HEADER
+    # -----------------------
+    st.markdown(
+        """
+        <div style="text-align:center;">
+            <h1 style="margin-bottom:0;">📊 VoliATS</h1>
+            <p style="color:gray; margin-top:5px;">
+                Candidate Submission Pipeline
+            </p>
         </div>
-    """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True
+    )
 
+    st.markdown("---")
+
+    # -----------------------
+    # LOGIN URL (KEEP THIS LOGIC SAME)
+    # -----------------------
     params = {
-        "client_id":     CLIENT_ID,
+        "client_id": CLIENT_ID,
         "response_type": "code",
-        "redirect_uri":  REDIRECT_URI,
+        "redirect_uri": REDIRECT_URI,
         "response_mode": "query",
-        "scope":         SCOPE,
-        "prompt":        "select_account",   # always show account picker
+        "scope": SCOPE,
+        "prompt": "select_account",
     }
+
     login_url = f"{AUTH_URL}?{urlencode(params)}"
 
-    # Centered button
-    col = st.columns([1, 2, 1])[1]
-    with col:
-        st.link_button(
-            "🔐  Sign in with Microsoft",
-            url=login_url,
-            width="stretch",
-            type="primary"
+    # -----------------------
+    # CENTER CARD
+    # -----------------------
+    col1, col2, col3 = st.columns([1, 2, 1])
+
+    with col2:
+        st.markdown(
+            """
+            <div style="
+                background-color:#0e1117;
+                padding:25px;
+                border-radius:12px;
+                border:1px solid #262730;
+            ">
+            """,
+            unsafe_allow_html=True
         )
+
+        st.markdown("### 🚀 What you can do")
+
+        st.markdown("""
+        - 📤 Upload resumes & auto-parse details  
+        - ✏️ Track candidate pipeline  
+        - 📊 Manage records efficiently  
+        - 📤 Upload directly to SAP  
+        - 📧 Send recruiter emails  
+        - 🔐 Secure Microsoft SSO login  
+        """)
+
+        st.markdown("---")
+
+        st.link_button(
+            "🔐 Sign in with Microsoft",
+            url=login_url,
+            type="primary",
+            use_container_width=True
+        )
+
+        st.caption("⚠️ Only @volibits.com accounts are allowed")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # -----------------------
+    # FOOTER
+    # -----------------------
+    st.markdown(
+        """
+        <div style="text-align:center; margin-top:30px; font-size:12px; color:gray;">
+            © 2026 Volibits · Internal HR System
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
     st.stop()
 
 
@@ -176,7 +235,7 @@ def require_login() -> dict:
             if "access_token" in token_data:
                 user["access_token"] = token_data["access_token"]
                 st.session_state.user = user
-                st.session_state.token_expires_at = time.time() + token_data.get("expires_in", 3600)
+                st.session_state.token_expires_at = time.time() + token_data.get("expires_in", 86400)
                 if "refresh_token" in token_data:
                     st.session_state.refresh_token = token_data["refresh_token"]
             else:
