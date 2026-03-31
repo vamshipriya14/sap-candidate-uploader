@@ -246,6 +246,32 @@ def get_user_signature(email: str) -> str:
     return ""
 
 
+def fetch_unsent_email_records() -> list[dict]:
+    """Fetch records where SAP upload is Done and client email has not been sent."""
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
+        "?upload_to_sap=eq.Done&client_email_sent=eq.No&select=*",
+        headers=_supabase_headers(),
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def mark_client_email_sent(record_ids: list[str]) -> None:
+    """Mark the given record IDs as client_email_sent=Yes."""
+    if not record_ids:
+        return
+    ids_str = ",".join(record_ids)
+    response = requests.patch(
+        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=in.({ids_str})",
+        headers=_supabase_headers(),
+        json={"client_email_sent": "Yes"},
+        timeout=30,
+    )
+    response.raise_for_status()
+
+
 def save_user_signature(email: str, signature: str) -> None:
     if not email:
         return

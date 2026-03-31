@@ -513,6 +513,17 @@ for row in jr_master_rows:
         jr_master_by_number[jr_number] = row
 
 active_jr_numbers = sorted(jr_master_by_number.keys())
+
+# Display options for the JR Number dropdown: "JR001 - Skill Name"
+# When saved, only jr_no is stored (see save_table_changes handling below).
+jr_display_options = [
+    f"{jr} - {jr_master_by_number[jr].get('skill_name', '')}"
+    if jr_master_by_number[jr].get("skill_name")
+    else jr
+    for jr in active_jr_numbers
+]
+# Map display label back to jr_no for stripping after selection
+_jr_display_to_no = {disp: jr for jr, disp in zip(active_jr_numbers, jr_display_options)}
 active_skills = sorted(
     {
         str(row.get("skill_name", "")).strip()
@@ -899,8 +910,8 @@ with st.form("resume_editor_form"):
         column_config={
             "JR Number": st.column_config.SelectboxColumn(
                 "JR Number",
-                options=active_jr_numbers,
-                help="Select JR Number from active list",
+                options=jr_display_options,
+                help="Select JR Number — shows JR No and skill name. Only the JR No is saved.",
                 pinned=True,
             ),
             "Date": st.column_config.Column(
@@ -961,7 +972,11 @@ if save_table_changes:
         current_data = st.session_state.parsed_resume_rows.get(file_name, {}).copy()
         current_data.update(row.to_dict())
 
-        jr_number = str(current_data.get("JR Number", "")).strip()
+        # Strip skill suffix if user selected a display option like "JR001 - Skill"
+        jr_raw = str(current_data.get("JR Number", "")).strip()
+        jr_number = _jr_display_to_no.get(jr_raw, jr_raw.split(" - ")[0].strip() if " - " in jr_raw else jr_raw)
+        current_data["JR Number"] = jr_number
+
         if jr_number in jr_master_by_number:
             master_row = jr_master_by_number[jr_number]
             if not str(current_data.get("Skill", "")).strip():
