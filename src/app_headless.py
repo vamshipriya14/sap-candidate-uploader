@@ -516,6 +516,8 @@ for row in jr_master_rows:
         jr_master_by_number[jr_number] = row
 
 active_jr_numbers = sorted(jr_master_by_number.keys())
+jr_skill_suggestions = sorted([f"{jr} - {row.get('skill_name', '')}" for jr, row in jr_master_by_number.items()])
+jr_to_suggestion = {jr: f"{jr} - {row.get('skill_name', '')}" for jr, row in jr_master_by_number.items()}
 active_skills = sorted(
     {
         str(row.get("skill_name", "")).strip()
@@ -702,6 +704,9 @@ else:
     ])
 
 df.index = df.index + 1
+# Map JR Number to "jr_no - skill_name" for display in data editor
+if not df.empty and "JR Number" in df.columns:
+    df["JR Number"] = df["JR Number"].apply(lambda x: jr_to_suggestion.get(str(x).strip(), x) if str(x).strip() else "")
 df = df.reindex(
     columns=[
         "JR Number",
@@ -912,7 +917,7 @@ with st.form("resume_editor_form"):
         column_config={
             "JR Number": st.column_config.SelectboxColumn(
                 "JR Number",
-                options=active_jr_numbers,
+                options=jr_skill_suggestions,
                 help="Select JR Number from active list",
                 pinned=True,
             ),
@@ -972,13 +977,23 @@ if save_table_changes:
 
         # Merge edited row data back into session state, preserving hidden columns
         current_data = st.session_state.parsed_resume_rows.get(file_name, {}).copy()
-        current_data.update(row.to_dict())
+        row_dict = row.to_dict()
+        
+        # Parse JR Number if it's in "jr_no - skill_name" format
+        jr_val = str(row_dict.get("JR Number", "")).strip()
+        if " - " in jr_val:
+            jr_number = jr_val.split(" - ", 1)[0].strip()
+            row_dict["JR Number"] = jr_number
+        else:
+            jr_number = jr_val
+            
+        current_data.update(row_dict)
 
-        jr_number = str(current_data.get("JR Number", "")).strip()
         if jr_number in jr_master_by_number:
             master_row = jr_master_by_number[jr_number]
-            if not str(current_data.get("Skill", "")).strip():
-                current_data["Skill"] = str(master_row.get("skill_name", "")).strip()
+            # Always update skill if a JR is selected from suggestions
+            current_data["Skill"] = str(master_row.get("skill_name", "")).strip()
+            
             if not str(current_data.get("client_recruiter", "")).strip():
                 current_data["client_recruiter"] = str(master_row.get("client_recruiter", "")).strip()
             if not str(current_data.get("client_recruiter_email", "")).strip():
