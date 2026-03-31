@@ -427,6 +427,20 @@ for row in jr_master_rows:
         jr_master_by_number[jr_number] = row
 
 active_jr_numbers = sorted(jr_master_by_number.keys())
+
+# Build display labels "JR001 - Python Developer" for the dropdown
+# and a reverse map from label -> jr_number
+jr_display_options = []
+jr_label_to_number = {}
+for _jr_no in active_jr_numbers:
+    _skill = str(jr_master_by_number[_jr_no].get("skill_name", "")).strip()
+    _label = f"{_jr_no} - {_skill}" if _skill else _jr_no
+    jr_display_options.append(_label)
+    jr_label_to_number[_label] = _jr_no
+# Also allow plain jr_number values (already-saved rows) to resolve correctly
+for _jr_no in active_jr_numbers:
+    jr_label_to_number[_jr_no] = _jr_no
+
 active_skills = sorted(
     {
         str(row.get("skill_name", "")).strip()
@@ -638,6 +652,20 @@ df = df.reindex(
         "File Name",
     ]
 )
+
+
+# Map stored plain jr_no → display label "JR001 - Python Dev" for the dropdown.
+# On Save Table Changes we reverse-map back to plain jr_no and fill Skill.
+def _jr_to_label(jr_no: str) -> str:
+    jr_no = str(jr_no or "").strip()
+    if not jr_no:
+        return jr_no
+    master = jr_master_by_number.get(jr_no, {})
+    skill = str(master.get("skill_name", "")).strip()
+    return f"{jr_no} - {skill}" if skill else jr_no
+
+
+df["JR Number"] = df["JR Number"].apply(_jr_to_label)
 invalid_count = len(df[(df["First Name"].fillna("").str.strip() == "") | (df["Email"].fillna("").str.strip() == "")])
 if invalid_count:
     st.warning(f"{invalid_count} resume(s) need correction before upload")
@@ -824,8 +852,8 @@ with st.form("resume_editor_form"):
         column_config={
             "JR Number": st.column_config.SelectboxColumn(
                 "JR Number",
-                options=active_jr_numbers,
-                help="Select JR Number from active list",
+                options=jr_display_options,
+                help="Select JR Number from active list (shown as JR No - Skill)",
                 pinned=True,
             ),
             "Date": st.column_config.Column(
@@ -886,11 +914,15 @@ if save_table_changes:
         current_data = st.session_state.parsed_resume_rows.get(file_name, {}).copy()
         current_data.update(row.to_dict())
 
-        jr_number = str(current_data.get("JR Number", "")).strip()
+        # Reverse-map display label "JR001 - Python Dev" back to plain jr_no
+        jr_raw = str(current_data.get("JR Number", "")).strip()
+        jr_number = jr_label_to_number.get(jr_raw, jr_raw)
+        current_data["JR Number"] = jr_number
+
         if jr_number in jr_master_by_number:
             master_row = jr_master_by_number[jr_number]
-            if not str(current_data.get("Skill", "")).strip():
-                current_data["Skill"] = str(master_row.get("skill_name", "")).strip()
+            # Always overwrite Skill from master when JR is selected
+            current_data["Skill"] = str(master_row.get("skill_name", "")).strip()
             if not str(current_data.get("client_recruiter", "")).strip():
                 current_data["client_recruiter"] = str(master_row.get("client_recruiter", "")).strip()
             if not str(current_data.get("client_recruiter_email", "")).strip():
@@ -1186,6 +1218,7 @@ else:
 unsent_db_records = [
     r for r in st.session_state.db_resume_records
     if str(r.get("client_email_sent", "No")).strip() not in ("Yes", "yes", "1", "true")
+       and str(r.get("upload_to_sap", "")).strip() == "Done"
 ]
 if unsent_db_records:
     st.subheader("Send Emails for Unsent Candidates")
@@ -1212,7 +1245,7 @@ if unsent_db_records:
     selected_unsent_labels = st.multiselect(
         "Select candidates to generate email drafts",
         options=sorted(set(unsent_labels)),
-        help="Only candidates with Email Sent = No are shown.",
+        help="Only candidates with Upload to SAP = Done and Email Sent = No are shown.",
     )
 
     if st.button("Generate Drafts for Selected Candidates"):
