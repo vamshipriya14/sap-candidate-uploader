@@ -5,7 +5,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
-from auth import require_login, show_user_profile
+from auth import require_login, show_user_profile, show_login_page, show_navigation
 from notifier import send_client_email, send_upload_notification
 from resume_parser import parse_resume
 from resume_repository import (
@@ -328,11 +328,14 @@ def _candidate_display_name(row: pd.Series) -> str:
 
 st.set_page_config(page_title="VoliATS", layout="wide")
 
+
 # =========================
 # AUTH
 # =========================
 user = require_login()
+show_login_page()
 show_user_profile(user)
+show_navigation("add")
 
 st.markdown("## 📊 VoliATS")
 st.markdown("##### Candidate Submission Pipeline")
