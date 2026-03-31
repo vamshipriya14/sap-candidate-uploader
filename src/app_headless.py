@@ -100,7 +100,7 @@ def build_email_drafts(successful_rows, metadata_by_jr, user: dict) -> pd.DataFr
                 "Job Title": job_title,
                 "Candidate Names": candidate_names,
                 "Client Recruiter Name": recruiter_name,
-                "Email To": meta.get("email_to", ""),
+                "Email To": rows[0].get("client_recruiter_email", "") or meta.get("email_to", ""),
                 "CC": "rec_team@volibits.com",
                 "Email From": sender_email,
                 "Subject": f"BS: {job_title}" if job_title else "BS:",
@@ -844,15 +844,13 @@ if email_sent_filter:
         filtered_db_df["Email Sent"].fillna("No").astype(str).str.strip().isin(email_sent_filter)]
 
 with st.expander("Searchable Database Records - Add to Main Table", expanded=False):
-    if filtered_db_df.empty:
-        st.info("No records match the filters")
-    else:
+    if not filtered_db_df.empty:
         # Reorder columns to match main table
         display_cols = [
             "JR Number", "Date", "Skill", "First Name", "Last Name", "Email", "Phone",
             "Current Company", "Total Experience", "Relevant Experience", "Current CTC",
             "Expected CTC", "Notice Period", "Current Location", "Preferred Location",
-            "Actual Status", "Call Iteration", "comments/Availability", "Error", "Upload to SAP", "Email Sent", "File Name"
+            "Actual Status", "Call Iteration", "comments/Availability", "Error", "Upload to SAP", "Email Sent"
         ]
 
         # Add selection column
@@ -906,8 +904,6 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
 
                 st.success(f"Added {len(selected_rows)} record(s) to the table below.")
                 st.rerun()
-
-st.subheader("Review & Edit Data")
 with st.form("resume_editor_form"):
     editor_df = st.data_editor(
         df,
@@ -994,6 +990,7 @@ if save_table_changes:
             # Always update skill if a JR is selected from suggestions
             current_data["Skill"] = str(master_row.get("skill_name", "")).strip()
             
+            # Auto-populate recruiter info from master list if not already present
             if not str(current_data.get("client_recruiter", "")).strip():
                 current_data["client_recruiter"] = str(master_row.get("client_recruiter", "")).strip()
             if not str(current_data.get("client_recruiter_email", "")).strip():
@@ -1358,6 +1355,8 @@ if unsent_db_records:
                     "Current Location": r.get("current_location"),
                     "Preferred Location": r.get("preferred_location"),
                     "comments/Availability": r.get("comments_availability"),
+                    "client_recruiter": r.get("client_recruiter"),
+                    "client_recruiter_email": r.get("client_recruiter_email"),
                 })
             
             # We need metadata_by_jr for build_email_drafts

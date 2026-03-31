@@ -119,6 +119,8 @@ def _resume_db_payload(row: dict, user: dict, resume_link: str | None = None) ->
         "error_message": str(row.get("Error", "")).strip(),
         "modified_by": str(user.get("email", "")).strip(),
         "modified_at": now,
+        "client_recruiter": str(row.get("client_recruiter", "")).strip(),
+        "client_recruiter_email": str(row.get("client_recruiter_email", "")).strip(),
         "client_email_sent": str(row.get("client_email_sent", "No")).strip(),
     }
     if resume_link is not None:
