@@ -1361,7 +1361,9 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                 row["Upload to SAP"] = "Done"
                 file_name = str(row.get("File Name", "")).strip()
                 if file_name:
-                    updated_row = row.to_dict()
+                    existing = st.session_state.parsed_resume_rows.get(file_name, {}).copy()
+                    existing.update(row.to_dict())
+                    updated_row = existing
                     st.session_state.parsed_resume_rows[file_name] = updated_row
                     st.session_state.resume_row_snapshots[file_name] = _row_snapshot(updated_row)
                     record_id = st.session_state.resume_record_ids.get(file_name)
@@ -1381,7 +1383,9 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                         row["Upload to SAP"] = "Failed"
                         file_name = str(row.get("File Name", "")).strip()
                         if file_name:
-                            updated_row = row.to_dict()
+                            existing = st.session_state.parsed_resume_rows.get(file_name, {}).copy()
+                            existing.update(row.to_dict())
+                            updated_row = existing
                             st.session_state.parsed_resume_rows[file_name] = updated_row
                             st.session_state.resume_row_snapshots[file_name] = _row_snapshot(updated_row)
                             record_id = st.session_state.resume_record_ids.get(file_name)
