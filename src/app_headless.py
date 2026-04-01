@@ -769,11 +769,10 @@ if files:
             unique_files.append(file)
     files = unique_files
     current_signature = tuple(sorted(file.name for file in files))
+    _new_files_to_process = [
+        f for f in files if f.name not in st.session_state.parsed_resume_rows
+    ]
     if st.session_state.last_uploaded_signature != current_signature:
-        # Clear only the newly uploaded file state, not the imported DB records
-        # To distinguish, we'd need to track which ones are from files.
-        # But the user might want to clear everything when new files are uploaded.
-        # For now, let's keep it simple and only process new files.
         st.session_state.last_uploaded_signature = current_signature
 
     st.info(f"{len(files)} resume(s) ready for processing")
@@ -846,12 +845,18 @@ if files:
                 )
                 st.session_state.resume_links[file.name] = resume_link
             except Exception as error:
-                row["Error"] = f"{row['Error']} | {error}".strip(" |")
+                _od_err = str(error).strip()
+                row["Error"] = f"{row['Error']} | {_od_err}".strip(" |")
+                st.warning(f"OneDrive upload failed for **{file.name}**: {_od_err}")
 
             st.session_state.resume_row_snapshots[file.name] = _row_snapshot(row)
             st.session_state.parsed_resume_rows[file.name] = row
 
         progress.progress((index + 1) / len(files))
+
+    # If new files were processed this run, rerun so the table renders immediately
+    if _new_files_to_process:
+        st.rerun()
 else:
     # If no files are currently in the uploader, we don't clear everything anymore.
     # This allows users to work with records imported from the database lookup.
