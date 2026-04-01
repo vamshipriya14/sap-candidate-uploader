@@ -1186,6 +1186,17 @@ edited_df = edited_df[
         axis=1))
 ]
 
+# Strip any display label ("JR001 - Skill") back to plain jr_no before sync/upload.
+# df["JR Number"] was converted to display labels for the SelectboxColumn — edited_df
+# inherits those labels. _sync_resume_rows_to_db and jr_folder_name need plain jr_no.
+def _strip_jr_label(val):
+    raw = str(val or "").strip()
+    return _jr_display_to_no.get(raw, raw.split(" - ")[0].strip() if " - " in raw else raw)
+
+if "JR Number" in edited_df.columns:
+    edited_df = edited_df.copy()
+    edited_df["JR Number"] = edited_df["JR Number"].apply(_strip_jr_label)
+
 if edited_df.empty:
     st.warning("No valid data to upload")
     st.stop()
