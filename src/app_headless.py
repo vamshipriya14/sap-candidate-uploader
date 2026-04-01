@@ -23,50 +23,38 @@ from sap_bot_headless import SAPBot
 from uploader import upload_to_sap
 
 
+import urllib.parse as _up
+import re as _re
+
+
 def _download_sharepoint_file(resume_link: str, access_token: str, retries: int = 3) -> bytes:
     """
-    Download a file stored in OneDrive/SharePoint using the Microsoft Graph API.
-
-    Supports two URL shapes:
-      1. Personal OneDrive path:
-         https://<tenant>-my.sharepoint.com/personal/<upn>/Documents/<path>/<file>
-         → uses /me/drive/root:/{path}:/content
-
-      2. Anything else (graph.microsoft.com URLs, public links, etc.)
-         → raw GET with Authorization header, following redirects
+    Download a file from OneDrive/SharePoint via Microsoft Graph API.
+    Strategy 1: personal OneDrive path  → /me/drive/root:/{path}:/content
+    Strategy 2: raw GET with Authorization header (fallback)
     """
-    import re as _re
-    import urllib.parse as _up
-
     headers = {"Authorization": f"Bearer {access_token}"}
     last_exc = None
-
     for attempt in range(retries):
         try:
-            # Strategy 1: personal OneDrive — extract the relative path after /Documents/
             personal_match = _re.search(
                 r"/personal/[^/]+/Documents/(.+)$", _up.unquote(resume_link)
             )
             if personal_match:
-                relative_path = personal_match.group(1)          # e.g. "VoliATS_Resume_Repository/pending_jr/file.pdf"
+                relative_path = personal_match.group(1)
                 encoded_path  = _up.quote(relative_path)
                 graph_url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_path}:/content"
                 resp = requests.get(graph_url, headers=headers, timeout=30, allow_redirects=True)
                 if resp.status_code == 200:
                     return resp.content
-                # fall through to strategy 2 if not 200
-
-            # Strategy 2: raw URL with auth header (graph direct-download links, etc.)
+            # Fallback: raw URL with auth header
             resp = requests.get(resume_link, headers=headers, timeout=30, allow_redirects=True)
             if resp.status_code == 200:
                 return resp.content
-
-            raise Exception(f"HTTP {resp.status_code} downloading resume from {resume_link[:120]}")
-
+            raise Exception(f"HTTP {resp.status_code} for {resume_link[:100]}")
         except Exception as exc:
             last_exc = exc
             time.sleep(2 * (attempt + 1))
-
     raise Exception(f"Download failed after {retries} attempts: {last_exc}")
 
 
@@ -632,6 +620,157 @@ except Exception as e:
     st.warning(f"Could not fetch database records: {e}")
 
 # =========================
+# FILTERS & STATS
+# =========================
+st.subheader("Filters & Database Lookup")
+
+_all_db_records = st.session_state.db_resume_records
+_all_recruiters_in_db = sorted({
+    str(r.get("recruiter", "") or r.get("recruiter_email", "")).strip()
+    for r in _all_db_records
+    if (r.get("recruiter") or r.get("recruiter_email"))
+})
+_current_user_recruiter = pretty_user_name(user) or user.get("email", "")
+_today = date.today()
+_default_start = _today.replace(day=1)
+
+_sf1, _sf2, _sf3 = st.columns([1, 1, 2])
+with _sf1:
+    _stats_date_from = st.date_input("Date From", value=_default_start, key="stats_date_from",
+        help="Filters stats cards and the DB table below.")
+with _sf2:
+    _stats_date_to = st.date_input("Date To", value=_today, key="stats_date_to")
+with _sf3:
+    _recruiter_options = ["All Recruiters"] + _all_recruiters_in_db
+    _default_recruiter_idx = 0
+    for _i, _opt in enumerate(_recruiter_options):
+        if _current_user_recruiter.lower() in _opt.lower() or _opt.lower() in _current_user_recruiter.lower():
+            _default_recruiter_idx = _i
+            break
+    _stats_recruiter = st.selectbox("Recruiter", options=_recruiter_options,
+        index=_default_recruiter_idx, key="stats_recruiter",
+        help="Default is the logged-in user. Select 'All Recruiters' to see everyone.")
+
+
+def _parse_record_date(r):
+    try:
+        return date.fromisoformat(r.get("date_text", "") or "")
+    except Exception:
+        try:
+            from datetime import datetime
+            return datetime.strptime(str(r.get("date_text", "")), "%d-%b-%Y").date()
+        except Exception:
+            return None
+
+
+def _record_matches_stats_filters(r) -> bool:
+    rd = _parse_record_date(r)
+    if rd is None:
+        return False
+    if rd < _stats_date_from or rd > _stats_date_to:
+        return False
+    if _stats_recruiter != "All Recruiters":
+        rec = str(r.get("recruiter", "") or "").strip()
+        rec_email = str(r.get("recruiter_email", "") or "").strip()
+        if _stats_recruiter not in (rec, rec_email):
+            return False
+    return True
+
+
+_filtered_stats_records = [r for r in _all_db_records if _record_matches_stats_filters(r)]
+_total      = len(_filtered_stats_records)
+_uploaded   = sum(1 for r in _filtered_stats_records if str(r.get("upload_to_sap", "")).strip() == "Done")
+_pending    = sum(1 for r in _filtered_stats_records if str(r.get("upload_to_sap", "")).strip() not in ("Done", "No"))
+_email_sent = sum(1 for r in _filtered_stats_records if str(r.get("client_email_sent", "No")).strip() in ("Yes", "yes", "1", "true"))
+
+_today_str        = _today.strftime("%d-%b-%Y")
+_today_records    = [r for r in _filtered_stats_records if str(r.get("date_text", "")).strip() == _today_str]
+_today_total      = len(_today_records)
+_today_uploaded   = sum(1 for r in _today_records if str(r.get("upload_to_sap", "")).strip() == "Done")
+_today_pending    = sum(1 for r in _today_records if str(r.get("upload_to_sap", "")).strip() not in ("Done", "No"))
+_today_email_sent = sum(1 for r in _today_records if str(r.get("client_email_sent", "No")).strip() in ("Yes", "yes", "1", "true"))
+
+
+def _mini_stat(label: str, value, bg: str, text: str = "#ffffff") -> str:
+    return (
+        f"<div style='background:{bg}; border-radius:8px; padding:8px 6px; "
+        f"text-align:center; flex:1; min-width:0;'>"
+        f"<div style='font-size:1.15rem; font-weight:700; color:{text};'>{value:,}</div>"
+        f"<div style='font-size:0.65rem; color:{text}; opacity:0.85; margin-top:2px;'>{label}</div>"
+        f"</div>"
+    )
+
+
+def _mini_stats_row(label, icon, total, uploaded, pending, emails, row_bg, colors):
+    c_total, c_up, c_pend, c_email = colors
+    st.markdown(
+        f"""<div style="background:{row_bg}; border-radius:10px; padding:10px 14px; margin-bottom:8px;">
+          <div style="font-size:0.78rem; font-weight:700; color:#ccc; margin-bottom:7px; letter-spacing:0.4px;">
+            {icon}&nbsp; {label}
+          </div>
+          <div style="display:flex; gap:7px;">
+            {_mini_stat("Total", total, c_total)}
+            {_mini_stat("SAP Done", uploaded, c_up)}
+            {_mini_stat("Pending", pending, c_pend)}
+            {_mini_stat("Emailed", emails, c_email)}
+          </div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+
+with st.expander("📊 Stats Dashboard", expanded=True):
+    _mini_stats_row("Period Total", "📊", _total, _uploaded, _pending, _email_sent,
+        row_bg="#1a1f2e", colors=("#2563eb", "#16a34a", "#d97706", "#7c3aed"))
+    _mini_stats_row("Today", "🗓️", _today_total, _today_uploaded, _today_pending, _today_email_sent,
+        row_bg="#0f1a14", colors=("#0284c7", "#15803d", "#b45309", "#6d28d9"))
+
+with st.expander("📝 Manage Your Email Signature"):
+    import streamlit.components.v1 as _sig_components
+    if "sig_name" not in st.session_state:
+        st.session_state.sig_name = pretty_user_name(user)
+    if "sig_job_title" not in st.session_state:
+        st.session_state.sig_job_title = user.get("job_title") or ""
+    if "sig_phone" not in st.session_state:
+        st.session_state.sig_phone = user.get("phone") or ""
+    st.caption("Fill in your details below. The signature preview updates automatically.")
+    _sig_form_col, _sig_prev_col = st.columns([1, 1], gap="large")
+    with _sig_form_col:
+        st.markdown("**Your Details**")
+        sig_name      = st.text_input("Full Name",    value=st.session_state.sig_name,      key="sig_name_input")
+        sig_job_title = st.text_input("Job Title",    value=st.session_state.sig_job_title, placeholder="e.g. Senior recruiter", key="sig_job_title_input")
+        sig_phone     = st.text_input("Phone Number", value=st.session_state.sig_phone,     placeholder="e.g. +91 0000000000",   key="sig_phone_input")
+        _user_for_sig = {**user, "name": sig_name or pretty_user_name(user), "job_title": sig_job_title, "phone": sig_phone}
+        preview_html  = _get_default_signature_template(_user_for_sig)
+        _bc1, _bc2 = st.columns(2)
+        with _bc1:
+            if st.button("Save Signature", use_container_width=True):
+                try:
+                    st.session_state.sig_name = sig_name
+                    st.session_state.sig_job_title = sig_job_title
+                    st.session_state.sig_phone = sig_phone
+                    save_user_signature(user["email"], preview_html)
+                    st.session_state.user_signature = preview_html
+                    st.success("Signature saved!")
+                except Exception as e:
+                    st.error(f"Failed to save: {e}")
+        with _bc2:
+            if st.button("Reset Fields", use_container_width=True):
+                st.session_state.sig_name = pretty_user_name(user)
+                st.session_state.sig_job_title = user.get("job_title") or ""
+                st.session_state.sig_phone = user.get("phone") or ""
+                st.rerun()
+    with _sig_prev_col:
+        st.markdown("**Signature Preview**")
+        _sig_components.html(
+            f"""<div style="font-family:Arial,sans-serif; padding:4px;">
+                <p style="font-size:12px; color:#888; margin:0 0 8px 0;">— Regards,</p>
+                {preview_html}
+            </div>""",
+            height=165, scrolling=False,
+        )
+
+# =========================
 # FILE UPLOAD & PARSE
 # =========================
 files = st.file_uploader(
@@ -1172,7 +1311,7 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                     st.session_state.uploaded_files_store[file_name] = file_bytes
 
                 file_obj = io.BytesIO(file_bytes)
-                file_obj.name = row["File Name"]
+                file_obj.name = file_name
 
                 upload_to_sap(
                     bot,
