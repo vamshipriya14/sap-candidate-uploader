@@ -1362,7 +1362,16 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                 file_name = str(row.get("File Name", "")).strip()
                 if file_name:
                     existing = st.session_state.parsed_resume_rows.get(file_name, {}).copy()
-                    existing.update(row.to_dict())
+                    row_dict = row.to_dict()
+                    # Preserve fields absent from upload_rows (e.g. client_email_sent).
+                    # edited_df never carries client_email_sent, so row.to_dict() has
+                    # it as NaN/empty — blindly calling existing.update() wipes the DB value.
+                    for field in ["client_email_sent"]:
+                        existing_val = str(existing.get(field, "")).strip()
+                        incoming_val = str(row_dict.get(field, "")).strip()
+                        if existing_val and not incoming_val:
+                            row_dict[field] = existing_val
+                    existing.update(row_dict)
                     updated_row = existing
                     st.session_state.parsed_resume_rows[file_name] = updated_row
                     st.session_state.resume_row_snapshots[file_name] = _row_snapshot(updated_row)
