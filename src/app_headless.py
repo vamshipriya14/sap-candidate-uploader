@@ -341,7 +341,6 @@ st.markdown("""
 user = require_login()
 show_user_profile(user)
 
-st.set_page_config(page_title="app headless", page_icon="📤", layout="wide")
 show_navigation("Candidate Submission")
 
 st.markdown("## 📊 VoliATS")
@@ -1211,30 +1210,39 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                 if not file_bytes:
                     # If file bytes not in store, it might be an added record from DB.
                     # We try to fetch from resume_link if available.
-                    resume_link = st.session_state.resume_links.get(row["File Name"])
-                    if resume_link:
-                        import requests
+                    file_name = str(row.get("File Name", "")).strip()
 
-                        # We need access token if it's a Microsoft Graph link
-                        headers = {}
-                        if "sharepoint.com" in resume_link or "graph.microsoft.com" in resume_link:
-                            import base64
+                    resume_link = st.session_state.resume_links.get(file_name)
+                    import requests
+                    import base64
 
-                            share_token = f"u!{base64.urlsafe_b64encode(resume_link.encode('utf-8')).decode('utf-8').rstrip('=')}"
-                            graph_url = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem/content"
-                            headers["Authorization"] = f"Bearer {user['access_token']}"
-                            resp = requests.get(graph_url, headers=headers, timeout=30)
-                        else:
-                            resp = requests.get(resume_link, headers=headers, timeout=30)
+                    file_name = str(row.get("File Name", "")).strip()
 
-                        if resp.status_code == 200:
-                            file_bytes = resp.content
-                            st.session_state.uploaded_files_store[row["File Name"]] = file_bytes
-                        else:
-                            raise Exception(
-                                f"Failed to download resume from link: {resume_link} (Status {resp.status_code})")
+                    resume_link = st.session_state.resume_links.get(file_name)
+                    if not file_bytes:
+                        st.write(f"Downloading from Graph: {resume_link}")
+                        raise Exception("No resume link found")
+
+                    headers = {}
+
+                    # ✅ ALWAYS use Graph for SharePoint
+                    if "sharepoint.com" in resume_link or "graph.microsoft.com" in resume_link:
+                        share_token = f"u!{base64.urlsafe_b64encode(resume_link.encode()).decode().rstrip('=')}"
+                        graph_url = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem/content"
+
+                        headers["Authorization"] = f"Bearer {user['access_token']}"
+                        resp = requests.get(graph_url, headers=headers, timeout=30)
+
                     else:
-                        raise Exception("File bytes not found in session and no resume link available")
+                        # fallback for public links
+                        resp = requests.get(resume_link, timeout=30)
+
+                    if resp.status_code == 200:
+                        file_bytes = resp.content
+                        st.session_state.uploaded_files_store[row["File Name"]] = file_bytes
+                    else:
+                        raise Exception(
+                            f"Failed to download resume from link: {resume_link} (Status {resp.status_code})")
 
                 file_obj = io.BytesIO(file_bytes)
                 file_obj.name = row["File Name"]
