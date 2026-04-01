@@ -27,8 +27,13 @@ import requests
 
 def download_file(graph_url, headers):
     resp = requests.get(graph_url, headers=headers, timeout=30)
+
     if resp.status_code != 200:
-        raise Exception(f"Download failed: {resp.status_code} - {resp.text[:100]}")
+        print("DEBUG STATUS:", resp.status_code)
+        print("DEBUG RESPONSE:", resp.text)
+
+        raise Exception(f"Download failed: {resp.status_code} - {resp.text[:300]}")
+
     return resp.content
 
 
@@ -1232,35 +1237,36 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                 file_bytes = st.session_state.uploaded_files_store.get(file_name)
 
                 if not file_bytes:
-                    resume_link = st.session_state.resume_links.get(file_name)
+                    resume_link = st.session_state.resume_links.get(row["File Name"])
 
-                    # ❌ FIXED BUG: check resume_link (not file_bytes)
                     if not resume_link:
                         raise Exception("No resume link found")
 
-                    st.write(f"Downloading from Graph: {resume_link}")
+                    # 🔥 CLEAN URL (IMPORTANT)
+                    resume_link = resume_link.split("?")[0]
 
-                    headers = {}
+                    import base64
 
-                    # ✅ Convert SharePoint → Graph API
-                    if "sharepoint.com" in resume_link or "graph.microsoft.com" in resume_link:
-                        share_token = f"u!{base64.urlsafe_b64encode(resume_link.encode()).decode().rstrip('=')}"
-                        graph_url = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem/content"
+                    share_token = base64.urlsafe_b64encode(resume_link.encode()).decode().rstrip("=")
+                    share_token = f"u!{share_token}"
 
-                        headers["Authorization"] = f"Bearer {user['access_token']}"
+                    graph_url = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem/content"
 
+                    headers = {
+                        "Authorization": f"Bearer {user['access_token']}",
+                        "Accept": "*/*"
+                    }
 
-                        file_bytes = download_with_retry(graph_url, headers)
+                    resp = requests.get(graph_url, headers=headers, timeout=30)
 
-                    else:
-                        # fallback for public URLs
-                        resp = requests.get(resume_link, timeout=30)
-                        if resp.status_code != 200:
-                            raise Exception(f"Download failed: {resp.status_code}")
-                        file_bytes = resp.content
+                    if resp.status_code != 200:
+                        st.error(f"Graph download failed: {resp.status_code} - {resp.text}")
+                        raise Exception(f"Download failed: {resp.status_code}")
 
-                    # ✅ Save to session cache
-                    st.session_state.uploaded_files_store[file_name] = file_bytes
+                    file_bytes = resp.content
+
+                    # ✅ CRITICAL FIX (you already partially do this)
+                    st.session_state.uploaded_files_store[row["File Name"]] = file_bytes
 
                 file_obj = io.BytesIO(file_bytes)
                 file_obj.name = row["File Name"]
