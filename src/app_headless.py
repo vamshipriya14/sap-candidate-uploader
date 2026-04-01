@@ -21,7 +21,29 @@ from resume_repository import (
 )
 from sap_bot_headless import SAPBot
 from uploader import upload_to_sap
+import time
+import base64
+import requests
 
+# ✅ Cached download (fast repeated runs)
+@st.cache_data(show_spinner=False)
+def cached_download(graph_url, headers):
+    resp = requests.get(graph_url, headers=headers, timeout=30)
+    if resp.status_code != 200:
+        raise Exception(f"Download failed: {resp.status_code}")
+    return resp.content
+
+
+# ✅ Retry wrapper
+def download_with_retry(graph_url, headers, retries=3):
+    for attempt in range(retries):
+        try:
+            return download_file(graph_url, headers)
+        except Exception as e:
+            st.warning(f"Retry {attempt+1} failed: {e}")
+            time.sleep(2)
+
+    raise Exception(f"Download failed after {retries} attempts")
 
 def normalize_upload_error(error: Exception) -> str:
     raw = str(error or "").strip()
@@ -1206,43 +1228,41 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                 if jr_number and jr_number not in metadata_by_jr:
                     metadata_by_jr[jr_number] = bot.get_job_email_details(jr_number)
 
-                file_bytes = st.session_state.uploaded_files_store.get(row["File Name"])
+                file_name = str(row.get("File Name", "")).strip()
+
+                # ✅ 1. Try session cache first (fastest)
+                file_bytes = st.session_state.uploaded_files_store.get(file_name)
+
                 if not file_bytes:
-                    # If file bytes not in store, it might be an added record from DB.
-                    # We try to fetch from resume_link if available.
-                    file_name = str(row.get("File Name", "")).strip()
-
                     resume_link = st.session_state.resume_links.get(file_name)
-                    import requests
-                    import base64
 
-                    file_name = str(row.get("File Name", "")).strip()
-
-                    resume_link = st.session_state.resume_links.get(file_name)
-                    if not file_bytes:
-                        st.write(f"Downloading from Graph: {resume_link}")
+                    # ❌ FIXED BUG: check resume_link (not file_bytes)
+                    if not resume_link:
                         raise Exception("No resume link found")
+
+                    st.write(f"Downloading from Graph: {resume_link}")
 
                     headers = {}
 
-                    # ✅ ALWAYS use Graph for SharePoint
+                    # ✅ Convert SharePoint → Graph API
                     if "sharepoint.com" in resume_link or "graph.microsoft.com" in resume_link:
                         share_token = f"u!{base64.urlsafe_b64encode(resume_link.encode()).decode().rstrip('=')}"
                         graph_url = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem/content"
 
                         headers["Authorization"] = f"Bearer {user['access_token']}"
-                        resp = requests.get(graph_url, headers=headers, timeout=30)
+
+
+                        file_bytes = download_with_retry(graph_url, headers)
 
                     else:
-                        # fallback for public links
+                        # fallback for public URLs
                         resp = requests.get(resume_link, timeout=30)
-
-                    if resp.status_code == 200:
+                        if resp.status_code != 200:
+                            raise Exception(f"Download failed: {resp.status_code}")
                         file_bytes = resp.content
-                        st.session_state.uploaded_files_store[row["File Name"]] = file_bytes
-                    else:
-                        raise Exception(
-                            f"Failed to download resume from link: {resume_link} (Status {resp.status_code})")
+
+                    # ✅ Save to session cache
+                    st.session_state.uploaded_files_store[file_name] = file_bytes
 
                 file_obj = io.BytesIO(file_bytes)
                 file_obj.name = row["File Name"]
