@@ -128,13 +128,24 @@ def build_email_drafts(successful_rows, metadata_by_jr, user: dict) -> pd.DataFr
     for jr, rows in grouped.items():
         meta = metadata_by_jr.get(jr, {})
         job_title = meta.get("job_title", "")
-        recruiter_name = meta.get("client_recruiter", "")
+
+        # Scan ALL rows for this JR to find any non-empty recruiter name/email
+        recruiter_name = str(meta.get("client_recruiter", "")).strip()
+        email_to = str(meta.get("email_to", "")).strip()
+        for _r in rows:
+            if not recruiter_name:
+                recruiter_name = str(_r.get("client_recruiter", "")).strip()
+            if not email_to:
+                email_to = str(_r.get("client_recruiter_email", "")).strip()
+            if recruiter_name and email_to:
+                break
+
         drafts.append(
             {
                 "JR Number": jr,
                 "Job Title": job_title,
                 "Client Recruiter Name": recruiter_name,
-                "Email To": meta.get("email_to", ""),
+                "Email To": email_to,
                 "CC": "rec_team@volibits.com",
                 "Email From": sender_email,
                 "Subject": f"BS: {job_title}" if job_title else "BS:",
@@ -345,6 +356,10 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
         else:
             # New record - insert into DB
             try:
+                # Always default client_email_sent to "No" on new records
+                row_dict.setdefault("client_email_sent", "No")
+                if str(row_dict.get("client_email_sent", "No")).strip() not in ("Yes", "No"):
+                    row_dict["client_email_sent"] = "No"
                 record = insert_resume_record(row_dict, user, resume_link=current_link)
                 new_id = str(record.get("id", "")).strip()
                 st.session_state.resume_record_ids[file_name] = new_id
@@ -614,14 +629,14 @@ _filtered_stats_records = [r for r in _all_db_records if _record_matches_stats_f
 _total      = len(_filtered_stats_records)
 _uploaded   = sum(1 for r in _filtered_stats_records if str(r.get("upload_to_sap", "")).strip() == "Done")
 _pending    = sum(1 for r in _filtered_stats_records if str(r.get("upload_to_sap", "")).strip() not in ("Done", "No"))
-_email_sent = sum(1 for r in _filtered_stats_records if str(r.get("client_email_sent", "No")).strip() in ("Yes", "yes", "1", "true"))
+_email_sent = sum(1 for r in _filtered_stats_records if str(r.get("client_email_sent", "No")).strip() == "Yes")
 
 _today_str        = _today.strftime("%d-%b-%Y")
 _today_records    = [r for r in _filtered_stats_records if str(r.get("date_text", "")).strip() == _today_str]
 _today_total      = len(_today_records)
 _today_uploaded   = sum(1 for r in _today_records if str(r.get("upload_to_sap", "")).strip() == "Done")
 _today_pending    = sum(1 for r in _today_records if str(r.get("upload_to_sap", "")).strip() not in ("Done", "No"))
-_today_email_sent = sum(1 for r in _today_records if str(r.get("client_email_sent", "No")).strip() in ("Yes", "yes", "1", "true"))
+_today_email_sent = sum(1 for r in _today_records if str(r.get("client_email_sent", "No")).strip() == "Yes")
 
 
 def _mini_stat(label: str, value, bg: str, text: str = "#ffffff") -> str:
@@ -1222,6 +1237,25 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
     status_box = st.empty()
 
     try:
+        # ── Pre-download ALL resume files BEFORE starting the SAP bot ──────────
+        # The access token can expire during a long SAP session (401 errors).
+        # Downloading everything upfront while the token is fresh avoids this.
+        status_box.info("Downloading resume files...")
+        for _, _pre_row in upload_rows.iterrows():
+            _pre_fname = str(_pre_row.get("File Name", "")).strip()
+            if not _pre_fname:
+                continue
+            if st.session_state.uploaded_files_store.get(_pre_fname):
+                continue  # already in cache
+            _pre_link = st.session_state.resume_links.get(_pre_fname)
+            if not _pre_link:
+                continue
+            try:
+                _pre_bytes = _download_sharepoint_file(_pre_link, user["access_token"])
+                st.session_state.uploaded_files_store[_pre_fname] = _pre_bytes
+            except Exception as _pre_exc:
+                st.warning(f"Pre-download failed for {_pre_fname}: {_pre_exc}")
+
         status_box.info("Connecting to SAP...")
         bot = SAPBot()
         bot.start()
@@ -1237,6 +1271,7 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                 file_name = str(row.get("File Name", "")).strip()
                 file_bytes = st.session_state.uploaded_files_store.get(file_name)
                 if not file_bytes:
+                    # Last-resort attempt in case pre-download missed it
                     resume_link = st.session_state.resume_links.get(file_name)
                     if not resume_link:
                         raise Exception("File bytes not found in session and no resume link available")

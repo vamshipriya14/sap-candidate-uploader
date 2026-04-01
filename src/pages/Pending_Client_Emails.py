@@ -180,14 +180,18 @@ if not rows_for_jr:
 
 meta = jr_master_by_number.get(selected_jr, {})
 job_title = str(meta.get("skill_name", "")).strip()
-recruiter_name_default = (
-    _safe(meta.get("client_recruiter"))
-    or _safe(rows_for_jr[0].get("client_recruiter"))
-)
-recruiter_email_default = (
-    _safe(meta.get("client_recruiter_email"))
-    or _safe(rows_for_jr[0].get("client_recruiter_email"))
-)
+# Scan ALL records for this JR to find any non-empty recruiter name/email
+# (one record might have it even if others don't)
+recruiter_name_default = _safe(meta.get("client_recruiter"))
+recruiter_email_default = _safe(meta.get("client_recruiter_email"))
+
+for _r in rows_for_jr:
+    if not recruiter_name_default:
+        recruiter_name_default = _safe(_r.get("client_recruiter"))
+    if not recruiter_email_default:
+        recruiter_email_default = _safe(_r.get("client_recruiter_email"))
+    if recruiter_name_default and recruiter_email_default:
+        break  # found both, no need to keep scanning
 
 file_names = [str(r.get("file_name", "")).strip() for r in rows_for_jr if r.get("file_name")]
 
@@ -347,7 +351,10 @@ if st.button("Send Email", type="primary", use_container_width=True):
                 missing_files.append(fname)
 
     if missing_files:
-        st.warning(f"Could not download {len(missing_files)} file(s): {', '.join(missing_files)}")
+        st.warning(
+            f"Could not download {len(missing_files)} file(s): {', '.join(missing_files)}. "
+            f"This is usually caused by an expired login session — try signing out and back in, then retry."
+        )
 
     user_to_send = {**user, "signature": st.session_state.user_signature_edp or user.get("signature", "")}
     with st.spinner("Sending email..."):
