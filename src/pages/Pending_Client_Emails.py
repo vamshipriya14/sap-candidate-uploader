@@ -62,25 +62,45 @@ def build_email_body(recruiter_name: str, job_title: str) -> str:
     )
 
 
-def _download_resume(access_token: str, resume_link: str) -> bytes | None:
-    """Download a resume file from OneDrive/SharePoint."""
+def _download_resume(access_token: str, resume_link: str, retries: int = 3) -> bytes | None:
+    """
+    Download a resume from OneDrive/SharePoint via Microsoft Graph API.
+    Strategy 1: personal OneDrive path → /me/drive/root:/{path}:/content
+    Strategy 2: raw GET with Authorization header (fallback)
+    """
+    import urllib.parse as _up
+    import re as _re
+    import time as _time
+
     if not resume_link:
         return None
-    try:
-        headers = {}
-        if "sharepoint.com" in resume_link or "graph.microsoft.com" in resume_link:
-            share_token = (
-                f"u!{base64.urlsafe_b64encode(resume_link.encode('utf-8')).decode('utf-8').rstrip('=')}"
+
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    for attempt in range(retries):
+        try:
+            # Strategy 1: extract relative path after /Documents/
+            personal_match = _re.search(
+                r"/personal/[^/]+/Documents/(.+)$", _up.unquote(resume_link)
             )
-            url = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem/content"
-            headers["Authorization"] = f"Bearer {access_token}"
-        else:
-            url = resume_link
-        resp = requests.get(url, headers=headers, timeout=30)
-        if resp.status_code == 200:
-            return resp.content
-    except Exception:
-        pass
+            if personal_match:
+                relative_path = personal_match.group(1)
+                encoded_path  = _up.quote(relative_path)
+                graph_url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_path}:/content"
+                resp = requests.get(graph_url, headers=headers, timeout=30, allow_redirects=True)
+                if resp.status_code == 200:
+                    return resp.content
+
+            # Strategy 2: raw URL with auth header
+            resp = requests.get(resume_link, headers=headers, timeout=30, allow_redirects=True)
+            if resp.status_code == 200:
+                return resp.content
+
+        except Exception:
+            pass
+
+        _time.sleep(2 * (attempt + 1))
+
     return None
 
 
