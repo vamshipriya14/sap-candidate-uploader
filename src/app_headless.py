@@ -25,12 +25,10 @@ import time
 import base64
 import requests
 
-# ✅ Cached download (fast repeated runs)
-@st.cache_data(show_spinner=False)
-def cached_download(graph_url, headers):
+def download_file(graph_url, headers):
     resp = requests.get(graph_url, headers=headers, timeout=30)
     if resp.status_code != 200:
-        raise Exception(f"Download failed: {resp.status_code}")
+        raise Exception(f"Download failed: {resp.status_code} - {resp.text[:100]}")
     return resp.content
 
 
