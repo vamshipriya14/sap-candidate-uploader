@@ -21,8 +21,9 @@ from resume_repository import (
 )
 from sap_bot_headless import SAPBot
 from uploader import upload_to_sap
-
-
+import time
+import base64
+import requests
 import urllib.parse as _up
 import re as _re
 
