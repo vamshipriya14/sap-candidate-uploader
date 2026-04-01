@@ -31,13 +31,17 @@ import re as _re
 def _download_sharepoint_file(resume_link: str, access_token: str, retries: int = 3) -> bytes:
     """
     Download a file from OneDrive/SharePoint via Microsoft Graph API.
-    Strategy 1: personal OneDrive path  → /me/drive/root:/{path}:/content
-    Strategy 2: raw GET with Authorization header (fallback)
+    Strategy 1: /me/drive/root:/{path}:/content  (personal OneDrive path)
+    Strategy 2: shares/{encode(url)}/driveItem/@microsoft.graph.downloadUrl
+                then fetch the pre-authenticated download URL (no auth needed)
+    Strategy 3: raw GET with Authorization header
     """
     headers = {"Authorization": f"Bearer {access_token}"}
     last_exc = None
+
     for attempt in range(retries):
         try:
+            # Strategy 1: personal OneDrive path
             personal_match = _re.search(
                 r"/personal/[^/]+/Documents/(.+)$", _up.unquote(resume_link)
             )
@@ -48,14 +52,40 @@ def _download_sharepoint_file(resume_link: str, access_token: str, retries: int 
                 resp = requests.get(graph_url, headers=headers, timeout=30, allow_redirects=True)
                 if resp.status_code == 200:
                     return resp.content
-            # Fallback: raw URL with auth header
+
+            # Strategy 2: get a pre-authenticated download URL via shares endpoint
+            # This works even when /me/drive returns 401 (scope issues)
+            try:
+                share_token = "u!" + base64.urlsafe_b64encode(
+                    resume_link.encode("utf-8")
+                ).decode("utf-8").rstrip("=")
+                meta_url = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem"
+                meta_resp = requests.get(
+                    meta_url,
+                    headers={**headers, "Prefer": "redeemSharingLink"},
+                    params={"$select": "@microsoft.graph.downloadUrl"},
+                    timeout=30,
+                )
+                if meta_resp.status_code == 200:
+                    dl_url = meta_resp.json().get("@microsoft.graph.downloadUrl", "")
+                    if dl_url:
+                        dl_resp = requests.get(dl_url, timeout=30, allow_redirects=True)
+                        if dl_resp.status_code == 200:
+                            return dl_resp.content
+            except Exception:
+                pass
+
+            # Strategy 3: raw GET with auth header
             resp = requests.get(resume_link, headers=headers, timeout=30, allow_redirects=True)
             if resp.status_code == 200:
                 return resp.content
-            raise Exception(f"HTTP {resp.status_code} for {resume_link[:100]}")
+
+            raise Exception(f"HTTP {resp.status_code} for {resume_link}")
+
         except Exception as exc:
             last_exc = exc
             time.sleep(2 * (attempt + 1))
+
     raise Exception(f"Download failed after {retries} attempts: {last_exc}")
 
 
@@ -1033,7 +1063,9 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
 
                     if original_record:
                         st.session_state.resume_record_ids[file_name] = str(original_record.get("id", ""))
-                        st.session_state.resume_links[file_name] = original_record.get("resume_link", "")
+                        _stored_link = str(original_record.get("resume_link", "") or "").strip()
+                        if _stored_link:
+                            st.session_state.resume_links[file_name] = _stored_link
 
                     row_data = row.to_dict()
                     row_data.pop("Select", None)
@@ -1043,6 +1075,10 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
                     st.session_state.parsed_resume_rows[file_name] = row_data
                     # Snapshot it so it doesn't trigger immediate sync unless changed
                     st.session_state.resume_row_snapshots[file_name] = _row_snapshot(row_data)
+                    # Ensure resume_link is in session so sync + pre-download can find it
+                    _rl = str(row_data.get("resume_link", "") or "").strip()
+                    if _rl and file_name not in st.session_state.resume_links:
+                        st.session_state.resume_links[file_name] = _rl
 
                 st.success(f"Added {len(selected_rows)} record(s) to the table below.")
                 st.rerun()

@@ -65,8 +65,9 @@ def build_email_body(recruiter_name: str, job_title: str) -> str:
 def _download_resume(access_token: str, resume_link: str, retries: int = 3) -> bytes | None:
     """
     Download a resume from OneDrive/SharePoint via Microsoft Graph API.
-    Strategy 1: personal OneDrive path → /me/drive/root:/{path}:/content
-    Strategy 2: raw GET with Authorization header (fallback)
+    Strategy 1: /me/drive/root:/{path}:/content  (personal OneDrive path)
+    Strategy 2: shares driveItem @microsoft.graph.downloadUrl (pre-auth URL, no token needed)
+    Strategy 3: raw GET with Authorization header
     """
     import urllib.parse as _up
     import re as _re
@@ -79,7 +80,7 @@ def _download_resume(access_token: str, resume_link: str, retries: int = 3) -> b
 
     for attempt in range(retries):
         try:
-            # Strategy 1: extract relative path after /Documents/
+            # Strategy 1: personal OneDrive path
             personal_match = _re.search(
                 r"/personal/[^/]+/Documents/(.+)$", _up.unquote(resume_link)
             )
@@ -91,7 +92,28 @@ def _download_resume(access_token: str, resume_link: str, retries: int = 3) -> b
                 if resp.status_code == 200:
                     return resp.content
 
-            # Strategy 2: raw URL with auth header
+            # Strategy 2: pre-authenticated download URL via shares endpoint
+            try:
+                share_token = "u!" + base64.urlsafe_b64encode(
+                    resume_link.encode("utf-8")
+                ).decode("utf-8").rstrip("=")
+                meta_url = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem"
+                meta_resp = requests.get(
+                    meta_url,
+                    headers={**headers, "Prefer": "redeemSharingLink"},
+                    params={"$select": "@microsoft.graph.downloadUrl"},
+                    timeout=30,
+                )
+                if meta_resp.status_code == 200:
+                    dl_url = meta_resp.json().get("@microsoft.graph.downloadUrl", "")
+                    if dl_url:
+                        dl_resp = requests.get(dl_url, timeout=30, allow_redirects=True)
+                        if dl_resp.status_code == 200:
+                            return dl_resp.content
+            except Exception:
+                pass
+
+            # Strategy 3: raw GET with auth header
             resp = requests.get(resume_link, headers=headers, timeout=30, allow_redirects=True)
             if resp.status_code == 200:
                 return resp.content
