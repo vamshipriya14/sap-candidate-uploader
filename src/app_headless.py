@@ -390,17 +390,17 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
         full_existing = st.session_state.parsed_resume_rows.get(file_name, {})
         merged_row_dict = _safe_merge(full_existing, row_dict)
 
-        # If JR Number has changed on a record that was already SAP-uploaded or
-        # had a client email sent, treat it as a brand-new record: detach from
-        # the old DB row and reset the status flags so it gets inserted fresh.
+        # If JR Number has changed from what was last committed to DB,
+        # treat it as a brand-new record: detach from the old DB row and
+        # reset status flags so it gets inserted fresh.
         if record_id and record_id != "PENDING":
-            old_jr = str(full_existing.get("JR Number", "")).strip()
+            committed_jr = str(st.session_state.resume_committed_jr.get(file_name, "")).strip()
             new_jr = str(row_dict.get("JR Number", "")).strip()
-            if new_jr and old_jr and new_jr != old_jr:
-                # JR number changed — always treat as a new record regardless
-                # of upload/email status, detach from old DB row and reset flags
+            if new_jr and committed_jr and new_jr != committed_jr:
+                # JR number changed from committed value — always treat as a new record
                 del st.session_state.resume_record_ids[file_name]
                 st.session_state.resume_row_snapshots.pop(file_name, None)
+                st.session_state.resume_committed_jr.pop(file_name, None)
                 merged_row_dict["upload_to_sap"] = "No"
                 merged_row_dict["client_email_sent"] = "No"
                 record_id = None
@@ -411,6 +411,7 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
             if st.session_state.resume_row_snapshots.get(file_name) != snapshot:
                 update_resume_record(record_id, merged_row_dict, user, resume_link=current_link)
                 st.session_state.resume_row_snapshots[file_name] = snapshot
+                st.session_state.resume_committed_jr[file_name] = str(merged_row_dict.get("JR Number", "")).strip()
         else:
             try:
                 merged_row_dict.setdefault("client_email_sent", "No")
@@ -420,6 +421,7 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
                 new_id = str(record.get("id", "")).strip()
                 st.session_state.resume_record_ids[file_name] = new_id
                 st.session_state.resume_row_snapshots[file_name] = snapshot
+                st.session_state.resume_committed_jr[file_name] = str(merged_row_dict.get("JR Number", "")).strip()
                 unique_keys[current_key] = new_id
             except Exception as e:
                 st.error(f"Failed to insert record for {file_name}: {e}")
@@ -612,6 +614,8 @@ if "resume_row_snapshots" not in st.session_state:
     st.session_state.resume_row_snapshots = {}
 if "resume_links" not in st.session_state:
     st.session_state.resume_links = {}
+if "resume_committed_jr" not in st.session_state:
+    st.session_state.resume_committed_jr = {}
 if "db_resume_records" not in st.session_state:
     st.session_state.db_resume_records = []
 
@@ -732,7 +736,7 @@ def _mini_stats_row(label, icon, total, uploaded, pending, emails, row_bg, color
 
 
 with st.expander("📊 Stats Dashboard", expanded=True):
-    _mini_stats_row("Overall", "📊", _total, _uploaded, _pending, _email_sent,
+    _mini_stats_row("Period Total", "📊", _total, _uploaded, _pending, _email_sent,
         row_bg="#1a1f2e", colors=("#2563eb", "#16a34a", "#d97706", "#7c3aed"))
     _mini_stats_row("Today", "🗓️", _today_total, _today_uploaded, _today_pending, _today_email_sent,
         row_bg="#0f1a14", colors=("#0284c7", "#15803d", "#b45309", "#6d28d9"))
@@ -917,6 +921,7 @@ if files:
 
             st.session_state.resume_row_snapshots[file.name] = _row_snapshot(row)
             st.session_state.parsed_resume_rows[file.name] = row
+            st.session_state.resume_committed_jr[file.name] = ""
 
         progress.progress((index + 1) / len(files))
 
@@ -1122,6 +1127,7 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
 
                     st.session_state.parsed_resume_rows[file_name] = row_data
                     st.session_state.resume_row_snapshots[file_name] = _row_snapshot(row_data)
+                    st.session_state.resume_committed_jr[file_name] = str(row_data.get("JR Number", "") or row_data.get("jr_number", "") or "").strip()
                     _rl = str(row_data.get("resume_link", "") or "").strip()
                     if _rl and file_name not in st.session_state.resume_links:
                         st.session_state.resume_links[file_name] = _rl
@@ -1239,6 +1245,7 @@ with _cl_col:
         st.session_state.resume_record_ids = {}
         st.session_state.resume_row_snapshots = {}
         st.session_state.resume_links = {}
+        st.session_state.resume_committed_jr = {}
         st.session_state.uploaded_files_store = {}
         clear_pending_upload_state()
         st.session_state.email_drafts_df = pd.DataFrame()
