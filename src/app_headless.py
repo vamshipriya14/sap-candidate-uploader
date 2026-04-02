@@ -390,6 +390,21 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
         full_existing = st.session_state.parsed_resume_rows.get(file_name, {})
         merged_row_dict = _safe_merge(full_existing, row_dict)
 
+        # If JR Number has changed on a record that was already SAP-uploaded or
+        # had a client email sent, treat it as a brand-new record: detach from
+        # the old DB row and reset the status flags so it gets inserted fresh.
+        if record_id and record_id != "PENDING":
+            old_jr = str(full_existing.get("JR Number", "")).strip()
+            new_jr = str(row_dict.get("JR Number", "")).strip()
+            if new_jr and old_jr and new_jr != old_jr:
+                # JR number changed — always treat as a new record regardless
+                # of upload/email status, detach from old DB row and reset flags
+                del st.session_state.resume_record_ids[file_name]
+                st.session_state.resume_row_snapshots.pop(file_name, None)
+                merged_row_dict["upload_to_sap"] = "No"
+                merged_row_dict["client_email_sent"] = "No"
+                record_id = None
+
         snapshot = _row_snapshot(merged_row_dict)
 
         if record_id and record_id != "PENDING":
@@ -419,6 +434,16 @@ def _candidate_display_name(row: pd.Series) -> str:
 
 
 st.set_page_config(page_title="Candidate Submission ATS", page_icon="📋", layout="wide")
+
+# Hide Streamlit's auto-generated multi-page navigation in the sidebar
+st.markdown(
+    """
+    <style>
+    [data-testid="stSidebarNav"] { display: none !important; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # =========================
 # AUTH
@@ -749,12 +774,45 @@ with st.expander("📝 Manage Your Email Signature"):
 # =========================
 # FILE UPLOAD & PARSE
 # =========================
-files = st.file_uploader(
-    "Upload Resumes",
-    type=["pdf", "docx"],
-    accept_multiple_files=True,
-    help="Each resume must have a unique filename. Duplicates will be ignored.",
-)
+_up_col, _parse_col = st.columns([3, 1])
+with _up_col:
+    files = st.file_uploader(
+        "Upload Resumes",
+        type=["pdf", "docx"],
+        accept_multiple_files=True,
+        help="Each resume must have a unique filename. Duplicates will be ignored.",
+    )
+with _parse_col:
+    st.write("")  # vertical alignment spacer
+    st.write("")
+    if st.button("🔄 Parse Resumes", width="stretch",
+                 help="Manually re-trigger parsing for any uploaded files that are missing data."):
+        _reparsed = 0
+        _today_text = date.today().strftime("%d-%b-%Y")
+        for _fname, _fbytes in list(st.session_state.uploaded_files_store.items()):
+            _existing = st.session_state.parsed_resume_rows.get(_fname, {})
+            _missing = not str(_existing.get("First Name", "")).strip() and not str(_existing.get("Email", "")).strip()
+            if _missing:
+                try:
+                    import io
+                    _fobj = io.BytesIO(_fbytes)
+                    _fobj.name = _fname
+                    _data = parse_resume(_fobj)
+                    _existing["First Name"] = _data.get("first_name", "") or _existing.get("First Name", "")
+                    _existing["Last Name"]  = _data.get("last_name", "")  or _existing.get("Last Name", "")
+                    _existing["Email"]      = _data.get("email", "")      or _existing.get("Email", "")
+                    _existing["Phone"]      = _data.get("phone", "")      or _existing.get("Phone", "")
+                    _existing["Error"] = ""
+                    st.session_state.parsed_resume_rows[_fname] = _existing
+                    st.session_state.resume_row_snapshots[_fname] = _row_snapshot(_existing)
+                    _reparsed += 1
+                except Exception as _pe:
+                    st.session_state.parsed_resume_rows[_fname]["Error"] = str(_pe)
+        if _reparsed:
+            st.success(f"Re-parsed {_reparsed} file(s) successfully.")
+            st.rerun()
+        else:
+            st.info("All uploaded files already have parsed data.")
 
 if files:
     seen = set()
@@ -1161,7 +1219,21 @@ if not missing_jr.empty:
 # DOWNLOAD CSV
 # =========================
 csv = edited_df.to_csv(index=False).encode("utf-8")
-st.download_button("Download CSV", data=csv, file_name="parsed_resumes.csv", mime="text/csv")
+_dl_col, _cl_col = st.columns([1, 1])
+with _dl_col:
+    st.download_button("Download CSV", data=csv, file_name="parsed_resumes.csv", mime="text/csv", width="stretch")
+with _cl_col:
+    if st.button("🗑️ Clear Table", width="stretch", help="Remove all candidates from the current session table."):
+        st.session_state.parsed_resume_rows = {}
+        st.session_state.resume_record_ids = {}
+        st.session_state.resume_row_snapshots = {}
+        st.session_state.resume_links = {}
+        st.session_state.uploaded_files_store = {}
+        clear_pending_upload_state()
+        st.session_state.email_drafts_df = pd.DataFrame()
+        st.session_state.email_candidates_df = pd.DataFrame()
+        st.session_state.email_send_status = ""
+        st.rerun()
 
 st.divider()
 
