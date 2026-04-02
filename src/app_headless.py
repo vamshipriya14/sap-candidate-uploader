@@ -721,7 +721,7 @@ def _mini_stats_row(label, icon, total, uploaded, pending, emails, row_bg, color
 
 
 with st.expander("📊 Stats Dashboard", expanded=True):
-    _mini_stats_row("Period Total", "📊", _total, _uploaded, _pending, _email_sent,
+    _mini_stats_row("Period TotalOverall", "📊", _total, _uploaded, _pending, _email_sent,
         row_bg="#1a1f2e", colors=("#2563eb", "#16a34a", "#d97706", "#7c3aed"))
     _mini_stats_row("Today", "🗓️", _today_total, _today_uploaded, _today_pending, _today_email_sent,
         row_bg="#0f1a14", colors=("#0284c7", "#15803d", "#b45309", "#6d28d9"))
