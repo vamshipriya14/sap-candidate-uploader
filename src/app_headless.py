@@ -1098,8 +1098,18 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
             else:
                 for _, row in selected_rows.iterrows():
                     file_name = str(row.get("File Name", "")).strip()
+                    record_db_id = str(row.get("id", "")).strip()
                     if not file_name:
-                        file_name = f"db_record_{row.get('id', 'unknown')}"
+                        file_name = f"db_record_{record_db_id or 'unknown'}"
+
+                    # If this file_name is already in session but belongs to a
+                    # different DB record (same resume, different JR), make the
+                    # key unique so it doesn't overwrite the existing entry.
+                    existing_id_for_file = st.session_state.resume_record_ids.get(file_name, "")
+                    if existing_id_for_file and record_db_id and existing_id_for_file != record_db_id:
+                        _jr_suffix = str(row.get("JR Number", "") or "").strip().replace(" ", "_") or record_db_id
+                        base, _, ext = file_name.rpartition(".")
+                        file_name = f"{base}_{_jr_suffix}.{ext}" if ext else f"{file_name}_{_jr_suffix}"
 
                     original_record = None
                     if 'id' in row:
