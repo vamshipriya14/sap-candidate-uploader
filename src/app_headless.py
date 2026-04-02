@@ -1585,10 +1585,19 @@ if not st.session_state.email_drafts_df.empty:
             "Client Recruiter Name",
             options=recruiter_options if recruiter_options else [current_recruiter_value or ""],
             key=f"draft_recruiter_name_{selected_idx}",
-            on_change=sync_draft_recruiter_fields,
-            args=(selected_idx, recruiter_email_by_name),
         )
         email_to_key = f"draft_email_to_{selected_idx}"
+        stored_client_recruiter_name = str(draft_row.get("Client Recruiter Name", "")).strip()
+        selected_client_recruiter_name = str(recruiter_name).strip()
+        selected_client_recruiter_email = str(
+            recruiter_email_by_name.get(selected_client_recruiter_name, "")
+        ).strip()
+        if (
+            selected_client_recruiter_name
+            and selected_client_recruiter_name != stored_client_recruiter_name
+            and selected_client_recruiter_email
+        ):
+            st.session_state[email_to_key] = selected_client_recruiter_email
         email_to = st.text_input("Email To", key=email_to_key, width="stretch")
         email_from = st.text_input("Email From", key=f"draft_email_from_{selected_idx}", width="stretch", disabled=True)
     with col2:

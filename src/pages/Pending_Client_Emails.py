@@ -242,7 +242,7 @@ if draft_key not in st.session_state:
         "recruiter_name": recruiter_name_default,
         "email_to": recruiter_email_default,
         "cc": "rec_team@volibits.com",
-        "subject": f"BS: {job_title}" if job_title else "BS:",
+        "subject": f"BS: {job_title}" if job_title else "BS: ",
         "body": build_email_body(recruiter_name_default, job_title),
     }
 d = st.session_state[draft_key]
@@ -302,10 +302,19 @@ with col1:
         options=active_recruiters or [recruiter_name_default or ""],
         index=active_recruiters.index(d["recruiter_name"]) if d["recruiter_name"] in active_recruiters else 0,
         key=f"edp_rec_{selected_jr}",
-        on_change=_sync_pending_recruiter_fields,
-        args=(selected_jr, recruiter_email_by_name),
     )
     email_to_key = f"edp_to_{selected_jr}"
+    stored_client_recruiter_name = _safe(d["recruiter_name"])
+    selected_client_recruiter_name = _safe(recruiter_name)
+    selected_client_recruiter_email = _safe(
+        recruiter_email_by_name.get(selected_client_recruiter_name, "")
+    )
+    if (
+        selected_client_recruiter_name
+        and selected_client_recruiter_name != stored_client_recruiter_name
+        and selected_client_recruiter_email
+    ):
+        st.session_state[email_to_key] = selected_client_recruiter_email
     email_to = st.text_input("Email To", value=d["email_to"], key=email_to_key)
     st.text_input("Email From", value=user.get("email", ""), disabled=True, key=f"edp_from_{selected_jr}")
 with col2:
