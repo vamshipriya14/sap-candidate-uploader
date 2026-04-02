@@ -455,8 +455,6 @@ show_user_profile(user)
 show_navigation("new_records")
 
 st.title("Candidate Submission ATS")
-st.caption(f"Logged in as **{user['name']}** ({user['email']})")
-
 
 # =========================
 # USER SIGNATURE
