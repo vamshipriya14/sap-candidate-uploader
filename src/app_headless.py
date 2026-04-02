@@ -684,8 +684,19 @@ _uploaded   = sum(1 for r in _filtered_stats_records if str(r.get("upload_to_sap
 _pending    = sum(1 for r in _filtered_stats_records if str(r.get("upload_to_sap", "")).strip() not in ("Done", "No"))
 _email_sent = sum(1 for r in _filtered_stats_records if str(r.get("client_email_sent", "No")).strip() == "Yes")
 
-_today_str        = _today.strftime("%d-%b-%Y")
-_today_records    = [r for r in _filtered_stats_records if str(r.get("date_text", "")).strip() == _today_str]
+_today_str     = _today.strftime("%d-%b-%Y")
+# Today always shows today's data for the selected recruiter, ignoring the date range.
+_today_records = [
+    r for r in _all_db_records
+    if str(r.get("date_text", "")).strip() == _today_str
+    and (
+        _stats_recruiter == "All Recruiters"
+        or _stats_recruiter in (
+            str(r.get("recruiter", "") or "").strip(),
+            str(r.get("recruiter_email", "") or "").strip(),
+        )
+    )
+]
 _today_total      = len(_today_records)
 _today_uploaded   = sum(1 for r in _today_records if str(r.get("upload_to_sap", "")).strip() == "Done")
 _today_pending    = sum(1 for r in _today_records if str(r.get("upload_to_sap", "")).strip() not in ("Done", "No"))
@@ -721,7 +732,7 @@ def _mini_stats_row(label, icon, total, uploaded, pending, emails, row_bg, color
 
 
 with st.expander("📊 Stats Dashboard", expanded=True):
-    _mini_stats_row("Period TotalOverall", "📊", _total, _uploaded, _pending, _email_sent,
+    _mini_stats_row("Overall", "📊", _total, _uploaded, _pending, _email_sent,
         row_bg="#1a1f2e", colors=("#2563eb", "#16a34a", "#d97706", "#7c3aed"))
     _mini_stats_row("Today", "🗓️", _today_total, _today_uploaded, _today_pending, _today_email_sent,
         row_bg="#0f1a14", colors=("#0284c7", "#15803d", "#b45309", "#6d28d9"))

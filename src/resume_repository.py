@@ -34,7 +34,7 @@ def _secret(name: str, *fallback_names: str, default: str = "") -> str:
 
 SUPABASE_URL = _secret("SUPABASE_URL")
 SUPABASE_KEY = _secret("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_KEY")
-SUPABASE_TABLE = _secret("SUPABASE_RESUME_TABLE", default="candidate_resumes")
+SUPABASE_TABLE = _secret("SUPABASE_RESUME_TABLE", default="candidates_submitted")
 
 ONEDRIVE_SHARED_FOLDER_LINK = "https://volibitsllp-my.sharepoint.com/:f:/g/personal/vamshipriya_konda_volibits_com/IgCfyrmNjOPJRJjecem68VEXAedkAWgC7-ebPjHAKOnRFSM?e=X8vYf0"
 

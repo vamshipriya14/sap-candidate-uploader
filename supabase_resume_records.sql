@@ -1,6 +1,6 @@
 create extension if not exists pgcrypto;
 
-create table if not exists public.candidate_resumes (
+create table if not exists public.candidates_submitted (
     id uuid primary key default gen_random_uuid(),
     jr_number text not null default '',
     date_text text not null default '',
@@ -37,11 +37,11 @@ create table if not exists public.candidate_resumes (
 );
 
 -- Migration: add recruiter columns if not present (safe to run on existing tables)
-alter table public.candidate_resumes add column if not exists recruiter text not null default '';
-alter table public.candidate_resumes add column if not exists recruiter_email text not null default '';
+alter table public.candidates_submitted add column if not exists recruiter text not null default '';
+alter table public.candidates_submitted add column if not exists recruiter_email text not null default '';
 
-create index if not exists idx_candidate_resumes_file_name on public.candidate_resumes (file_name);
-create index if not exists idx_candidate_resumes_jr_number on public.candidate_resumes (jr_number);
+create index if not exists idx_candidates_submitted_file_name on public.candidates_submitted (file_name);
+create index if not exists idx_candidates_submitted_jr_number on public.candidates_submitted (jr_number);
 
 -- RECRUITER SIGNATURES TABLE
 create table if not exists public.recruiter_signatures (
