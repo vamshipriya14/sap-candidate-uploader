@@ -223,6 +223,20 @@ def update_resume_record(record_id: str, row: dict, user: dict, resume_link: str
     return records[0]
 
 
+def update_resume_record_fields(record_id: str, fields: dict) -> dict:
+    response = requests.patch(
+        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{record_id}",
+        headers=_supabase_headers(),
+        json=fields,
+        timeout=30,
+    )
+    response.raise_for_status()
+    records = response.json()
+    if not records:
+        return fields
+    return records[0]
+
+
 def fetch_all_resume_records() -> list[dict]:
     response = requests.get(
         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?select=*",

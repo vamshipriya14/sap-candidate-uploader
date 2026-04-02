@@ -20,6 +20,7 @@ from resume_repository import (
     get_user_signature,
     mark_client_email_sent,
     save_user_signature,
+    update_resume_record_fields,
 )
 
 st.set_page_config(page_title="Pending Client Emails", page_icon="📧", layout="wide")
@@ -141,6 +142,10 @@ def update_email_body_greeting(body_text: str, recruiter_name: str) -> str:
     return f"{greeting}\n\n{body}" if body else greeting
 
 
+def _pending_candidate_editor_key(selected_jr: str) -> str:
+    return f"edp_candidates_editor_{selected_jr}"
+
+
 def _download_resume(access_token: str, resume_link: str, retries: int = 3) -> bytes | None:
     """
     Download a resume from OneDrive/SharePoint via Microsoft Graph API.
@@ -212,7 +217,7 @@ if "user_signature_edp" not in st.session_state:
     except Exception:
         st.session_state.user_signature_edp = _get_default_signature_template(user)
 
-with st.expander("Manage Your Email Signature", expanded=True):
+with st.expander("Manage Your Email Signature", expanded=False):
     if "sig_name_edp" not in st.session_state:
         st.session_state.sig_name_edp = pretty_user_name(user)
     if "sig_job_title_edp" not in st.session_state:
@@ -510,7 +515,50 @@ display_df = pd.DataFrame([
     for row in candidate_rows
 ])
 st.caption("Candidate table that will be included in email")
-st.dataframe(display_df, width="stretch", hide_index=True)
+editor_key = _pending_candidate_editor_key(selected_jr)
+edited_display_df = st.data_editor(
+    display_df,
+    key=editor_key,
+    width="stretch",
+    hide_index=True,
+    disabled=["JR Number", "Date", "Skill", "Email ID"],
+)
+if not edited_display_df.equals(display_df):
+    changed_candidate_rows = []
+    for original_row, edited_row in zip(candidate_rows, edited_display_df.to_dict(orient="records")):
+        merged_row = original_row.copy()
+        for field, value in edited_row.items():
+            merged_row[field] = "" if pd.isna(value) else str(value).strip()
+        changed_candidate_rows.append(merged_row)
+
+    changed_count = 0
+    for original_row, changed_row in zip(candidate_rows, changed_candidate_rows):
+        if changed_row == original_row:
+            continue
+        record_id = str(changed_row.get("_record_id", "")).strip()
+        if not record_id:
+            continue
+        update_resume_record_fields(
+            record_id,
+            {
+                "candidate_name": changed_row.get("Candidate Name", ""),
+                "phone": changed_row.get("Contact Number", ""),
+                "current_company": changed_row.get("Current Company", ""),
+                "total_experience": changed_row.get("Total Experience", ""),
+                "relevant_experience": changed_row.get("Relevant Experience", ""),
+                "current_ctc": changed_row.get("Current CTC", ""),
+                "expected_ctc": changed_row.get("Expected CTC", ""),
+                "notice_period": changed_row.get("Notice Period", ""),
+                "current_location": changed_row.get("Current Location", ""),
+                "preferred_location": changed_row.get("Preferred Location", ""),
+                "comments_availability": changed_row.get("comments/Availability", ""),
+            },
+        )
+        changed_count += 1
+    if changed_count:
+        st.success(f"Saved {changed_count} candidate row(s)")
+        st.rerun()
+    candidate_rows = changed_candidate_rows
 
 # ── send ──────────────────────────────────────────────────────────────────────
 
