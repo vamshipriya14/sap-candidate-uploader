@@ -299,9 +299,9 @@ def send_client_email(user: dict, draft: dict, candidate_rows: list, attachments
             "Preferred Location",
             "comments/Availability",
         ]
-        ths = "".join(f"<th style='padding:6px;border:1px solid #ddd;background:#f6f6f6'>{h}</th>" for h in headers)
+        ths = "".join(f"<th style='padding:8px 6px;border:1px solid #0056a0;background:#0078d4;color:#ffffff;font-weight:600'>{h}</th>" for h in headers)
         table_html = (
-            "<table style='border-collapse:collapse;font-family:Segoe UI,Arial,sans-serif;font-size:12px'>"
+            "<table style='border-collapse:collapse;font-family:Segoe UI,Arial,sans-serif;font-size:12px;margin-top:16px'>"
             f"<thead><tr>{ths}</tr></thead><tbody>{rows_html}</tbody></table>"
         )
     body_html = _build_body_with_table(body_text, table_html)
