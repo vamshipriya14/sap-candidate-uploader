@@ -286,7 +286,7 @@ def logout():
 def show_navigation(current_page: str) -> None:
     """
     Renders page navigation buttons in the sidebar.
-    current_page: 'new_records' or 'pending_emails'
+    current_page: 'new_records' or 'pending_emails' or 'user_guide'
     """
     # CSS: make the active-page button look like a primary/red button
     st.sidebar.markdown(
@@ -321,6 +321,14 @@ def show_navigation(current_page: str) -> None:
         if st.button("📧 Client Emails", use_container_width=True, key="nav_pending_emails"):
             st.switch_page("pages/Pending_Client_Emails.py")
         if current_page == "pending_emails":
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # User Guide
+        if current_page == "user_guide":
+            st.markdown('<div class="nav-active">', unsafe_allow_html=True)
+        if st.button("📘 User Guide", use_container_width=True, key="nav_user_guide"):
+            st.switch_page("pages/User_Guide.py")
+        if current_page == "user_guide":
             st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("---")
