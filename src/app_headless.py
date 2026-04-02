@@ -608,14 +608,12 @@ _all_recruiters_in_db = sorted({
 })
 _current_user_recruiter = pretty_user_name(user) or user.get("email", "")
 _today = date.today()
-_default_start = _today.replace(day=1)
-
 _sf1, _sf2, _sf3 = st.columns([1, 1, 2])
 with _sf1:
-    _stats_date_from = st.date_input("Date From", value=_default_start, key="stats_date_from",
+    _stats_date_from = st.date_input("Date From", value=None, key="stats_date_from",
         help="Filters stats cards and the DB table below.")
 with _sf2:
-    _stats_date_to = st.date_input("Date To", value=_today, key="stats_date_to")
+    _stats_date_to = st.date_input("Date To", value=None, key="stats_date_to")
 with _sf3:
     _recruiter_options = ["All Recruiters"] + _all_recruiters_in_db
     _default_recruiter_idx = 0
@@ -643,7 +641,9 @@ def _record_matches_stats_filters(r) -> bool:
     rd = _parse_record_date(r)
     if rd is None:
         return False
-    if rd < _stats_date_from or rd > _stats_date_to:
+    if _stats_date_from is not None and rd < _stats_date_from:
+        return False
+    if _stats_date_to is not None and rd > _stats_date_to:
         return False
     if _stats_recruiter != "All Recruiters":
         rec = str(r.get("recruiter", "") or "").strip()
