@@ -176,7 +176,7 @@ def delete_resume_from_shared_drive(access_token: str, file_name: str, subfolder
 
 def fetch_active_jr_master() -> list[dict]:
     response = requests.get(
-        f"{SUPABASE_URL}/rest/v1/jr_master?select=jr_no,client_recruiter,skill_name,jr_status",
+        f"{SUPABASE_URL}/rest/v1/jr_master?select=jr_no,client_recruiter,client_recruiter_email,recruiter_email,skill_name,jr_status",
         headers=_supabase_headers(),
         timeout=30,
     )

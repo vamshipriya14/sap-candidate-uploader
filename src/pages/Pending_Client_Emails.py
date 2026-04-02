@@ -140,6 +140,18 @@ for r in jr_master_rows:
     if jn:
         jr_master_by_number[jn] = r
 
+
+def _jr_recruiter_email(row: dict) -> str:
+    return _safe(row.get("client_recruiter_email")) or _safe(row.get("recruiter_email"))
+
+
+recruiter_email_by_name = {}
+for r in jr_master_rows:
+    recruiter_name = _safe(r.get("client_recruiter"))
+    recruiter_email = _jr_recruiter_email(r)
+    if recruiter_name and recruiter_email and recruiter_name not in recruiter_email_by_name:
+        recruiter_email_by_name[recruiter_name] = recruiter_email
+
 try:
     unsent_records = fetch_unsent_email_records()
 except Exception as e:
@@ -205,13 +217,13 @@ job_title = str(meta.get("skill_name", "")).strip()
 # Scan ALL records for this JR to find any non-empty recruiter name/email
 # (one record might have it even if others don't)
 recruiter_name_default = _safe(meta.get("client_recruiter"))
-recruiter_email_default = _safe(meta.get("client_recruiter_email"))
+recruiter_email_default = _safe(meta.get("client_recruiter_email")) or _safe(meta.get("recruiter_email"))
 
 for _r in rows_for_jr:
     if not recruiter_name_default:
         recruiter_name_default = _safe(_r.get("client_recruiter"))
     if not recruiter_email_default:
-        recruiter_email_default = _safe(_r.get("client_recruiter_email"))
+        recruiter_email_default = _safe(_r.get("client_recruiter_email")) or _safe(_r.get("recruiter_email"))
     if recruiter_name_default and recruiter_email_default:
         break  # found both, no need to keep scanning
 
@@ -284,7 +296,12 @@ with col1:
         index=active_recruiters.index(d["recruiter_name"]) if d["recruiter_name"] in active_recruiters else 0,
         key=f"edp_rec_{selected_jr}",
     )
-    email_to = st.text_input("Email To", value=d["email_to"], key=f"edp_to_{selected_jr}")
+    recruiter_email = recruiter_email_by_name.get(recruiter_name, "")
+    email_to_key = f"edp_to_{selected_jr}"
+    current_email_to_value = _safe(st.session_state.get(email_to_key, d["email_to"]))
+    if recruiter_email and current_email_to_value != recruiter_email:
+        st.session_state[email_to_key] = recruiter_email
+    email_to = st.text_input("Email To", value=d["email_to"], key=email_to_key)
     st.text_input("Email From", value=user.get("email", ""), disabled=True, key=f"edp_from_{selected_jr}")
 with col2:
     st.text_input("JR Number", value=selected_jr, disabled=True)

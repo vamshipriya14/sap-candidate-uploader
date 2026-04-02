@@ -172,6 +172,12 @@ def build_email_body(recruiter_name: str, job_title: str, sender_name: str) -> s
     )
 
 
+def get_jr_master_recruiter_email(master_row: dict) -> str:
+    return str(
+        master_row.get("client_recruiter_email", "") or master_row.get("recruiter_email", "")
+    ).strip()
+
+
 def build_email_drafts(successful_rows, metadata_by_jr, user: dict) -> pd.DataFrame:
     sender_name = pretty_user_name(user)
     sender_email = user.get("email", "")
@@ -576,6 +582,12 @@ active_recruiters = sorted(
         if str(row.get("client_recruiter", "")).strip()
     }
 )
+recruiter_email_by_name = {}
+for row in jr_master_rows:
+    recruiter_name = str(row.get("client_recruiter", "")).strip()
+    recruiter_email = get_jr_master_recruiter_email(row)
+    if recruiter_name and recruiter_email and recruiter_name not in recruiter_email_by_name:
+        recruiter_email_by_name[recruiter_name] = recruiter_email
 
 # =========================
 # SESSION STATE INIT
@@ -900,7 +912,7 @@ if files:
                     if not str(row.get("client_recruiter", "")).strip():
                         row["client_recruiter"] = str(master_row.get("client_recruiter", "")).strip()
                     if not str(row.get("client_recruiter_email", "")).strip():
-                        row["client_recruiter_email"] = str(master_row.get("client_recruiter_email", "")).strip()
+                        row["client_recruiter_email"] = get_jr_master_recruiter_email(master_row)
             except Exception as error:
                 row["Error"] = str(error)
 
@@ -1206,7 +1218,7 @@ if save_table_changes:
             if not str(current_data.get("client_recruiter", "")).strip():
                 current_data["client_recruiter"] = str(master_row.get("client_recruiter", "")).strip()
             if not str(current_data.get("client_recruiter_email", "")).strip():
-                current_data["client_recruiter_email"] = str(master_row.get("client_recruiter_email", "")).strip()
+                current_data["client_recruiter_email"] = get_jr_master_recruiter_email(master_row)
 
         st.session_state.parsed_resume_rows[file_name] = current_data
     st.rerun()
@@ -1396,7 +1408,9 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                     if not str(row.get("client_recruiter", "")).strip():
                         row["client_recruiter"] = str(meta.get("client_recruiter", "")).strip()
                     if not str(row.get("client_recruiter_email", "")).strip():
-                        row["client_recruiter_email"] = str(meta.get("email_to", "")).strip()
+                        row["client_recruiter_email"] = str(
+                            meta.get("email_to", "") or get_jr_master_recruiter_email(jr_master_by_number.get(jr_number, {}))
+                        ).strip()
 
                 row["Upload to SAP"] = "Done"
                 file_name = str(row.get("File Name", "")).strip()
@@ -1565,7 +1579,12 @@ if not st.session_state.email_drafts_df.empty:
             options=recruiter_options if recruiter_options else [current_recruiter_value or ""],
             key=f"draft_recruiter_name_{selected_idx}",
         )
-        email_to = st.text_input("Email To", key=f"draft_email_to_{selected_idx}", width="stretch")
+        recruiter_email = recruiter_email_by_name.get(str(recruiter_name).strip(), "")
+        email_to_key = f"draft_email_to_{selected_idx}"
+        current_email_to_value = str(st.session_state.get(email_to_key, "")).strip()
+        if recruiter_email and current_email_to_value != recruiter_email:
+            st.session_state[email_to_key] = recruiter_email
+        email_to = st.text_input("Email To", key=email_to_key, width="stretch")
         email_from = st.text_input("Email From", key=f"draft_email_from_{selected_idx}", width="stretch", disabled=True)
     with col2:
         jr_number = st.text_input("JR Number", key=f"draft_jr_{selected_idx}", width="stretch", disabled=True)
