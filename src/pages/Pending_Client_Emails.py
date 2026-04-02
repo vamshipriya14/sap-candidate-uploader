@@ -563,6 +563,33 @@ if not edited_display_df.equals(display_df):
 # ── send ──────────────────────────────────────────────────────────────────────
 
 if st.button("Send Email", type="primary", use_container_width=True):
+    required_draft_fields = {
+        "JR Number": selected_jr,
+        "Client Recruiter Name": recruiter_name,
+        "Email To": email_to,
+        "CC": cc_value,
+        "Subject": subject,
+        "Email Body": body_text,
+    }
+    missing_draft_fields = [name for name, value in required_draft_fields.items() if not str(value).strip()]
+    if missing_draft_fields:
+        st.error(f"Cannot send email. Missing draft fields: {', '.join(missing_draft_fields)}")
+        st.stop()
+
+    required_candidate_fields = list(display_df.columns)
+    missing_candidate_messages = []
+    for idx, row in enumerate(candidate_rows, start=1):
+        missing_fields = [field for field in required_candidate_fields if not str(row.get(field, "")).strip()]
+        if missing_fields:
+            candidate_label = str(row.get("Candidate Name", "")).strip() or f"row {idx}"
+            missing_candidate_messages.append(f"{candidate_label}: {', '.join(missing_fields)}")
+    if missing_candidate_messages:
+        st.error(
+            "Cannot send email. Candidate table has missing values in: "
+            + "; ".join(missing_candidate_messages)
+        )
+        st.stop()
+
     draft_payload = {
         "JR Number": selected_jr,
         "Job Title": job_title,

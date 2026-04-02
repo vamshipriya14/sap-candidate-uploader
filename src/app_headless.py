@@ -1190,14 +1190,25 @@ if st.button("Upload", type="primary", width="stretch"):
     reset_email_state()
     upload_rows = edited_df[
         (edited_df["Upload to SAP"].fillna("").str.strip() == "Yes")
-        & (edited_df["First Name"].fillna("").str.strip() != "")
-        & (edited_df["Email"].fillna("").str.strip() != "")
-        & (edited_df["JR Number"].fillna("").str.strip() != "")
     ]
 
     if upload_rows.empty:
-        st.error("No valid rows with JR Number to upload")
+        st.error("No rows selected for SAP upload")
     else:
+        required_sap_fields = ["JR Number", "Email", "Phone", "First Name", "Last Name"]
+        invalid_upload_rows = upload_rows[
+            upload_rows[required_sap_fields].fillna("").apply(lambda x: x.astype(str).str.strip()).eq("").any(axis=1)
+        ]
+        if not invalid_upload_rows.empty:
+            invalid_names = ", ".join(
+                str(row.get("File Name", "")).strip() or f"row {idx + 1}"
+                for idx, row in invalid_upload_rows.iterrows()
+            )
+            st.error(
+                "SAP upload requires JR Number, Email, Phone, First Name, and Last Name. "
+                f"Missing values found in: {invalid_names}"
+            )
+            st.stop()
         st.session_state.pending_upload_rows = upload_rows.to_dict(orient="records")
         st.session_state.pending_submit_mode = submit_mode
         st.session_state.upload_confirmed = False
