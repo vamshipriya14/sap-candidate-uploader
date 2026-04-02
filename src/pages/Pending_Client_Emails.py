@@ -145,6 +145,13 @@ def _jr_recruiter_email(row: dict) -> str:
     return _safe(row.get("client_recruiter_email")) or _safe(row.get("recruiter_email"))
 
 
+def _sync_pending_recruiter_fields(selected_jr: str, recruiter_email_by_name: dict) -> None:
+    recruiter_name = _safe(st.session_state.get(f"edp_rec_{selected_jr}", ""))
+    recruiter_email = _safe(recruiter_email_by_name.get(recruiter_name, ""))
+    if recruiter_email:
+        st.session_state[f"edp_to_{selected_jr}"] = recruiter_email
+
+
 recruiter_email_by_name = {}
 for r in jr_master_rows:
     recruiter_name = _safe(r.get("client_recruiter"))
@@ -295,12 +302,10 @@ with col1:
         options=active_recruiters or [recruiter_name_default or ""],
         index=active_recruiters.index(d["recruiter_name"]) if d["recruiter_name"] in active_recruiters else 0,
         key=f"edp_rec_{selected_jr}",
+        on_change=_sync_pending_recruiter_fields,
+        args=(selected_jr, recruiter_email_by_name),
     )
-    recruiter_email = recruiter_email_by_name.get(recruiter_name, "")
     email_to_key = f"edp_to_{selected_jr}"
-    current_email_to_value = _safe(st.session_state.get(email_to_key, d["email_to"]))
-    if recruiter_email and current_email_to_value != recruiter_email:
-        st.session_state[email_to_key] = recruiter_email
     email_to = st.text_input("Email To", value=d["email_to"], key=email_to_key)
     st.text_input("Email From", value=user.get("email", ""), disabled=True, key=f"edp_from_{selected_jr}")
 with col2:

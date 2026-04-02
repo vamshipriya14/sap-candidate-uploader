@@ -178,6 +178,13 @@ def get_jr_master_recruiter_email(master_row: dict) -> str:
     ).strip()
 
 
+def sync_draft_recruiter_fields(selected_idx: int, recruiter_email_by_name: dict) -> None:
+    recruiter_name = str(st.session_state.get(f"draft_recruiter_name_{selected_idx}", "")).strip()
+    recruiter_email = str(recruiter_email_by_name.get(recruiter_name, "")).strip()
+    if recruiter_email:
+        st.session_state[f"draft_email_to_{selected_idx}"] = recruiter_email
+
+
 def build_email_drafts(successful_rows, metadata_by_jr, user: dict) -> pd.DataFrame:
     sender_name = pretty_user_name(user)
     sender_email = user.get("email", "")
@@ -1578,12 +1585,10 @@ if not st.session_state.email_drafts_df.empty:
             "Client Recruiter Name",
             options=recruiter_options if recruiter_options else [current_recruiter_value or ""],
             key=f"draft_recruiter_name_{selected_idx}",
+            on_change=sync_draft_recruiter_fields,
+            args=(selected_idx, recruiter_email_by_name),
         )
-        recruiter_email = recruiter_email_by_name.get(str(recruiter_name).strip(), "")
         email_to_key = f"draft_email_to_{selected_idx}"
-        current_email_to_value = str(st.session_state.get(email_to_key, "")).strip()
-        if recruiter_email and current_email_to_value != recruiter_email:
-            st.session_state[email_to_key] = recruiter_email
         email_to = st.text_input("Email To", key=email_to_key, width="stretch")
         email_from = st.text_input("Email From", key=f"draft_email_from_{selected_idx}", width="stretch", disabled=True)
     with col2:
