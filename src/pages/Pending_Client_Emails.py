@@ -62,6 +62,14 @@ def build_email_body(recruiter_name: str, job_title: str) -> str:
     )
 
 
+def update_email_body_greeting(body_text: str, recruiter_name: str) -> str:
+    greeting = f"Hi {recruiter_name or 'Team'},"
+    body = str(body_text or "")
+    if re.match(r"^Hi\s+.*?,", body):
+        return re.sub(r"^Hi\s+.*?,", greeting, body, count=1)
+    return f"{greeting}\n\n{body}" if body else greeting
+
+
 def _download_resume(access_token: str, resume_link: str, retries: int = 3) -> bytes | None:
     """
     Download a resume from OneDrive/SharePoint via Microsoft Graph API.
@@ -315,6 +323,10 @@ with col1:
         and selected_client_recruiter_email
     ):
         st.session_state[email_to_key] = selected_client_recruiter_email
+        st.session_state[f"edp_body_{selected_jr}"] = update_email_body_greeting(
+            st.session_state.get(f"edp_body_{selected_jr}", d["body"]),
+            selected_client_recruiter_name,
+        )
     email_to = st.text_input("Email To", value=d["email_to"], key=email_to_key)
     st.text_input("Email From", value=user.get("email", ""), disabled=True, key=f"edp_from_{selected_jr}")
 with col2:

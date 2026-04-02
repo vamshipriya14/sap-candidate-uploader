@@ -172,6 +172,14 @@ def build_email_body(recruiter_name: str, job_title: str, sender_name: str) -> s
     )
 
 
+def update_email_body_greeting(body_text: str, recruiter_name: str) -> str:
+    greeting = f"Hi {recruiter_name or 'Team'},"
+    body = str(body_text or "")
+    if re.match(r"^Hi\s+.*?,", body):
+        return re.sub(r"^Hi\s+.*?,", greeting, body, count=1)
+    return f"{greeting}\n\n{body}" if body else greeting
+
+
 def get_jr_master_recruiter_email(master_row: dict) -> str:
     return str(
         master_row.get("client_recruiter_email", "") or master_row.get("recruiter_email", "")
@@ -1598,6 +1606,10 @@ if not st.session_state.email_drafts_df.empty:
             and selected_client_recruiter_email
         ):
             st.session_state[email_to_key] = selected_client_recruiter_email
+            st.session_state[f"draft_body_{selected_idx}"] = update_email_body_greeting(
+                st.session_state.get(f"draft_body_{selected_idx}", ""),
+                selected_client_recruiter_name,
+            )
         email_to = st.text_input("Email To", key=email_to_key, width="stretch")
         email_from = st.text_input("Email From", key=f"draft_email_from_{selected_idx}", width="stretch", disabled=True)
     with col2:
