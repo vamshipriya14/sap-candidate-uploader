@@ -54,6 +54,77 @@ def pretty_user_name(u: dict) -> str:
     return " ".join(part.capitalize() for part in email.replace(".", " ").replace("_", " ").split())
 
 
+def _get_default_signature_template(user_dict: dict) -> str:
+    name = user_dict.get("name", "Name")
+    job_title = user_dict.get("job_title") or "job_title"
+    email = user_dict.get("email", "Email")
+    phone = user_dict.get("phone") or "+91 0000000000"
+ 
+    _logo = "data:image/jpeg;base64,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"
+
+    def _social_icon(href, label, bg_color, text_color="#ffffff", short_label=None):
+        display = short_label or label[0]
+        return (
+            f'<a href="{href}" style="display:inline-block; width:22px; height:22px; '
+            f'background-color:{bg_color}; border-radius:4px; text-align:center; '
+            f'line-height:22px; font-family:Arial,sans-serif; font-size:10px; '
+            f'font-weight:bold; color:{text_color}; text-decoration:none; margin:0 1px;" '
+            f'title="{label}">{display}</a>'
+        )
+
+    social_icons_html = (
+        _social_icon("https://www.linkedin.com/company/volibits/", "LinkedIn", "#0A66C2", short_label="in") +
+        _social_icon("https://www.instagram.com/volibits_llp/", "Instagram", "#E1306C", short_label="IG") +
+        _social_icon("https://www.facebook.com/Volibits/", "Facebook", "#1877F2", short_label="f") +
+        _social_icon("https://x.com/VolibitsInd", "X / Twitter", "#000000", short_label="&#120143;") +
+        _social_icon("https://www.youtube.com/channel/UCmSl5A2JfguK3PtcUdiI8-A", "YouTube", "#FF0000", short_label="&#9654;")
+    )
+
+    return f"""<table border="0" cellspacing="0" cellpadding="0"
+        style="background:white; border-collapse:collapse; font-family:Arial,sans-serif; font-size:13px; color:#333;">
+  <tbody>
+    <tr>
+      <td valign="middle" align="center"
+          style="padding:8px 14px 8px 8px; border-right:1.5px solid #595959; width:160px;">
+        <a href="http://www.volibits.com/" style="text-decoration:none; display:block; margin-bottom:6px;">
+          <img src="{_logo}" width="140" height="45" alt="Volibits"
+               style="display:block; border:0; margin:0 auto;">
+        </a>
+        <div style="font-size:8.5px; color:#5d5d5d; font-weight:700;
+                    margin-bottom:6px; letter-spacing:0.3px; font-family:Arial,sans-serif;">
+          Connect with us
+        </div>
+        <div style="text-align:center; line-height:1;">
+          {social_icons_html}
+        </div>
+      </td>
+      <td valign="top" style="padding:8px 8px 8px 16px;">
+        <p style="margin:0 0 2px 0; font-size:15px; font-weight:700;
+                  color:#000; font-family:'Aptos Narrow',Arial,sans-serif;">
+          {name}
+        </p>
+        <p style="margin:0 0 10px 0; font-size:12px; color:#444; font-family:Arial,sans-serif;">
+          {job_title}
+        </p>
+        <p style="margin:0 0 3px 0; font-size:12px; color:#636363; font-weight:700; font-family:Arial,sans-serif;">
+          <a href="tel:{phone.replace(' ', '')}" style="color:#0563C1; text-decoration:none;">{phone}</a>
+          <span style="color:#636363;">&nbsp;|&nbsp;</span>
+          <a href="mailto:{email}" style="color:blue; text-decoration:underline;">{email}</a>
+        </p>
+        <p style="margin:0 0 3px 0; font-size:12px; font-weight:700; font-family:Arial,sans-serif;">
+          <a href="http://www.volibits.com/" style="color:#0058B9; text-decoration:underline;">
+            www.volibits.com
+          </a>
+        </p>
+        <p style="margin:0; font-size:12px; color:#636363; font-weight:700; font-family:Arial,sans-serif;">
+          203, A Wing, The Capital, Baner-Pashan Link Rd, Baner, Pune, MH, India - 411045
+        </p>
+      </td>
+    </tr>
+  </tbody>
+</table>"""
+
+
 def build_email_body(recruiter_name: str, job_title: str) -> str:
     return (
         f"Hi {recruiter_name or 'Team'},\n\n"
@@ -132,6 +203,61 @@ def _download_resume(access_token: str, resume_link: str, retries: int = 3) -> b
         _time.sleep(2 * (attempt + 1))
 
     return None
+
+
+if "user_signature_edp" not in st.session_state:
+    try:
+        db_sig = get_user_signature(user["email"])
+        st.session_state.user_signature_edp = db_sig or _get_default_signature_template(user)
+    except Exception:
+        st.session_state.user_signature_edp = _get_default_signature_template(user)
+
+with st.expander("Manage Your Email Signature", expanded=True):
+    if "sig_name_edp" not in st.session_state:
+        st.session_state.sig_name_edp = pretty_user_name(user)
+    if "sig_job_title_edp" not in st.session_state:
+        st.session_state.sig_job_title_edp = user.get("job_title") or ""
+    if "sig_phone_edp" not in st.session_state:
+        st.session_state.sig_phone_edp = user.get("phone") or ""
+
+    sig_col1, sig_col2 = st.columns([1, 1], gap="large")
+    with sig_col1:
+        st.caption("Fill in your details below. The signature preview updates automatically.")
+        st.markdown("**Your Details**")
+        sig_name = st.text_input("Full Name", value=st.session_state.sig_name_edp, key="sig_name_input_edp")
+        sig_job_title = st.text_input("Job Title", value=st.session_state.sig_job_title_edp, key="sig_job_title_input_edp")
+        sig_phone = st.text_input("Phone Number", value=st.session_state.sig_phone_edp, key="sig_phone_input_edp")
+        preview_html = _get_default_signature_template(
+            {**user, "name": sig_name or pretty_user_name(user), "job_title": sig_job_title, "phone": sig_phone}
+        )
+        save_col1, save_col2 = st.columns(2)
+        with save_col1:
+            if st.button("Save Signature", use_container_width=True):
+                try:
+                    st.session_state.sig_name_edp = sig_name
+                    st.session_state.sig_job_title_edp = sig_job_title
+                    st.session_state.sig_phone_edp = sig_phone
+                    save_user_signature(user["email"], preview_html)
+                    st.session_state.user_signature_edp = preview_html
+                    st.success("Signature saved")
+                except Exception as e:
+                    st.error(f"Failed to save: {e}")
+        with save_col2:
+            if st.button("Reset Fields", use_container_width=True):
+                st.session_state.sig_name_edp = pretty_user_name(user)
+                st.session_state.sig_job_title_edp = user.get("job_title") or ""
+                st.session_state.sig_phone_edp = user.get("phone") or ""
+                st.rerun()
+    with sig_col2:
+        st.markdown("**Signature Preview**")
+        components.html(
+            f"""<div style="font-family:Arial,sans-serif; padding:4px;">
+                <p style="font-size:12px; color:#888; margin:0 0 8px 0;">— Regards,</p>
+                {preview_html}
+            </div>""",
+            height=165,
+            scrolling=False,
+        )
 
 
 # ── fetch data ────────────────────────────────────────────────────────────────
