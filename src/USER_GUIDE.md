@@ -28,7 +28,7 @@ Make sure you have:
 There are 2 important pages:
 
 1. `Resume Pipeline`
-2. `Pending Client Emails`
+2. `Client Emails`
 
 ---
 
@@ -45,9 +45,7 @@ Use this page to:
 
 Open the app and click `Resume Pipeline` from the left menu.
 
-Screenshot placeholder:
-
-`[Add screenshot here: Resume Pipeline menu]`
+![img_2.png](archive/images/img_2.png)
 
 ### Step 2: Upload Resumes
 
@@ -57,13 +55,19 @@ Screenshot placeholder:
 
 The system reads resume data and fills the table automatically.
 
-Screenshot placeholder:
 
-`[Add screenshot here: Upload Resumes section]`
+![img_4.png](archive/images/img_4.png)
+
+The system will show a progress bar while parsing resumes.
+It will show `100%` when parsing is complete.
+
+![img_5.png](archive/images/img_5.png)
 
 ### Step 3: Review the Main Table
 
 Check every row carefully.
+
+![img_7.png](archive/images/img_7.png)
 
 Important fields:
 
@@ -99,9 +103,10 @@ That means the same candidate should not be saved again with the same:
 2. Email
 3. Phone
 
-Screenshot placeholder:
-
-`[Add screenshot here: Main candidate table]`
+If you try to save a candidate with the same JR Number, Email, and Phone as an existing record:
+1. The system will show an error 
+2. The save/sync will stop
+3. The existing record will not be updated
 
 ### Step 4: Correct Missing Data
 
@@ -117,7 +122,7 @@ You must especially check:
 
 ### Step 5: Save the Table
 
-When you edit the table, the system saves records to the database.
+When you edit the table, click `Save Table Changes` and the system saves records to the database.
 
 If `JR Number` is missing, save will be blocked.
 
@@ -128,6 +133,8 @@ To send a candidate to SAP:
 1. Set `Upload to SAP` = `Yes`
 2. Confirm the candidate
 3. Start the SAP upload
+
+![img_8.png](archive/images/img_8.png)
 
 ### SAP Upload Mandatory Fields
 
@@ -144,9 +151,7 @@ If even one of these is missing:
 1. The system will show an error
 2. The SAP upload will not start
 
-Screenshot placeholder:
-
-`[Add screenshot here: SAP upload validation error]`
+![img_9.png](archive/images/img_9.png)
 
 ### After SAP Upload
 
@@ -168,11 +173,9 @@ Use this page to:
 
 ### Step 1: Open Pending Client Emails
 
-Click `Pending Client Emails` in the left menu.
+Click `Client Emails` in the left menu.
 
-Screenshot placeholder:
-
-`[Add screenshot here: Pending Client Emails menu]`
+![img_10.png](archive/images/img_10.png)
 
 ### Step 2: Manage Email Signature
 
@@ -189,9 +192,7 @@ Open it only if you want to:
 3. Update your phone number
 4. Save your signature
 
-Screenshot placeholder:
-
-`[Add screenshot here: Manage Your Email Signature section]`
+![img_11.png](archive/images/img_11.png)
 
 ### Step 3: Select JR Number
 
@@ -204,9 +205,7 @@ Only candidates that:
 
 will appear here.
 
-Screenshot placeholder:
-
-`[Add screenshot here: JR selection dropdown]`
+![img_12.png](archive/images/img_12.png)
 
 ### Step 4: Review Email Details
 
@@ -229,10 +228,8 @@ If you change `Client Recruiter Name`:
 
 This happens only when you change the recruiter name from the prefilled value.
 
-Screenshot placeholder:
-
-`[Add screenshot here: Client Recruiter Name dropdown and Email To update]`
-
+![img_13.png](archive/images/img_13.png)
+![img_14.png](archive/images/img_14.png)
 ### Step 5: Edit Candidate Table
 
 Below the email preview, the candidate table is editable.
@@ -253,9 +250,7 @@ You can update values such as:
 
 Any changes made here are saved to the database.
 
-Screenshot placeholder:
-
-`[Add screenshot here: Editable candidate table in Pending Client Emails]`
+![img_15.png](archive/images/img_15.png)
 
 ### Step 6: Send Email
 
@@ -279,9 +274,6 @@ If anything is missing:
 1. The system will show an error
 2. Email will not be sent
 
-Screenshot placeholder:
-
-`[Add screenshot here: Email send validation error]`
 
 ### After Email Is Sent
 
@@ -385,16 +377,4 @@ Update the missing values in the editable candidate table and try again.
 
 ---
 
-## Screenshot List To Add Later
-
-1. Resume Pipeline menu
-2. Upload Resumes section
-3. Main candidate table
-4. SAP upload validation error
-5. Pending Client Emails menu
-6. Manage Your Email Signature section
-7. JR selection dropdown
-8. Client Recruiter Name dropdown and Email To update
-9. Editable candidate table in Pending Client Emails
-10. Email send validation error
 
