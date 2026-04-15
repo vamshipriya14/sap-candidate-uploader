@@ -461,6 +461,15 @@ def _candidate_display_name(row: pd.Series) -> str:
 
 st.set_page_config(page_title="Candidate Submission ATS", page_icon="📋", layout="wide")
 
+# Keep-alive: prevents Streamlit Cloud sleep mode
+from streamlit.components.v1 import html as _html
+_html("""
+<script>
+  setInterval(() => {
+    fetch(window.location.href, { method: 'HEAD' }).catch(() => {});
+  }, 240000);
+</script>
+""", height=0)
 # Hide Streamlit's auto-generated multi-page navigation in the sidebar
 st.markdown(
     """
