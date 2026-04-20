@@ -1,0 +1,42 @@
+name: Email Resume Scheduler
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  run-scheduler:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scheduler
+        env:
+          SUPABASE_URL:             ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:             ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_TABLE:           ${{ secrets.SUPABASE_TABLE }}
+          AZURE_TENANT_ID:          ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID:          ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET:      ${{ secrets.AZURE_CLIENT_SECRET }}
+          ONEDRIVE_SITE_ID:         ${{ secrets.ONEDRIVE_SITE_ID }}
+          SAP_URL:                  ${{ secrets.SAP_URL }}
+          SAP_USERNAME:             ${{ secrets.SAP_USERNAME }}
+          SAP_PASSWORD:             ${{ secrets.SAP_PASSWORD }}
+          EMAIL_CC:                 ${{ secrets.EMAIL_CC }}
+          SCHEDULER_SUBMIT_TO_SAP:  'false'
+          SCHEDULER_USER_EMAIL:     'hrvolibot@volibits.com'
+          SCHEDULER_MAX_MESSAGES:   '25'
+        run: python scheduler.py
