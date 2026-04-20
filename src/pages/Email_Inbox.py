@@ -1,17 +1,11 @@
 """
-Email Inbox Integration — pages/Email_Inbox.py (UPDATED)
+Email Inbox Integration — pages/Email_Inbox.py
 
 Connects to hrvolibot@volibits.com mailbox, reads emails with subject
 matching "Profiles - BS: <skill>", extracts candidate rows from the
 email body table, downloads resume attachments, uploads to OneDrive,
 parses them, inserts into Supabase, and triggers SAP upload — all
 without manual intervention.
-
-UPDATES:
-✅ Fixed 400 Bad Request error when fetching attachments
-✅ Integrated azure_auth for centralized credential management
-✅ Added retry logic and detailed error handling
-✅ Uses email_handler for robust email operations
 """
 
 import base64
@@ -19,7 +13,6 @@ import io
 import os
 import re
 import sys
-import time
 from datetime import date, datetime, timezone
 
 import pandas as pd
@@ -29,6 +22,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from auth import require_login, show_navigation, show_user_profile
+from notifier import _get_app_token
 from resume_parser import parse_resume
 from resume_repository import (
     _supabase_headers,
@@ -42,24 +36,6 @@ from resume_repository import (
 )
 from sap_bot_headless import SAPBot
 from uploader import upload_to_sap
-
-# ✅ NEW: Import improved Azure auth and email handling
-try:
-    from azure_auth import get_access_token, validate_credentials
-    from email_handler import (
-        fetch_message_attachments,
-        list_inbox_messages,
-        list_inbox_subfolders,
-        mark_message_read,
-        move_message_to_folder,
-        get_attachment_file_names,
-    )
-    AZURE_AUTH_AVAILABLE = True
-except ImportError as e:
-    st.warning(f"⚠️ Azure auth modules not available: {e}. Using fallback auth.")
-    AZURE_AUTH_AVAILABLE = False
-    get_access_token = None
-
 
 # ─────────────────────────────────────────────────────────────
 # CONFIG
@@ -90,22 +66,6 @@ st.caption(
     f"**hrvolibot OneDrive / {HRVOLIBOT_ROOT_FOLDER}/<JR>/** → parses → SAP."
 )
 
-# ✅ NEW: Validate Azure credentials on startup
-if AZURE_AUTH_AVAILABLE and "azure_validated" not in st.session_state:
-    try:
-        validate_credentials()
-        st.session_state.azure_validated = True
-    except Exception as e:
-        st.error(
-            f"❌ Azure Credentials Error\n\n{str(e)}\n\n"
-            f"Please set environment variables:\n"
-            f"- ST_AZURE_TENANT_ID\n"
-            f"- ST_AZURE_CLIENT_ID\n"
-            f"- ST_AZURE_CLIENT_SECRET"
-        )
-        st.info("Proceeding with fallback authentication...")
-
-
 # ─────────────────────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────────────────────
@@ -118,27 +78,11 @@ def _safe(val) -> str:
     return str(val).strip() if val else ""
 
 
-def _get_token() -> str:
-    """
-    Get Azure access token using new auth module if available,
-    otherwise fall back to legacy method.
-    """
-    if AZURE_AUTH_AVAILABLE and get_access_token:
-        try:
-            return get_access_token()
-        except Exception as e:
-            st.warning(f"Azure token acquisition failed: {e}. Trying fallback...")
-
-    # Fallback to original method
-    try:
-        from notifier import _get_app_token
-        return _get_app_token()
-    except Exception as e:
-        st.error(f"Token acquisition failed: {e}")
-        st.stop()
+def _app_token() -> str:
+    return _get_app_token()
 
 
-# ── Graph API helpers (legacy, kept for fallback) ────────────────────────────────────────
+# ── Graph API helpers ────────────────────────────────────────
 
 def _graph_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -178,11 +122,10 @@ def _get_inbox_subfolder_ids(token: str) -> list[tuple]:
     return folders
 
 
-def fetch_inbox_messages_legacy(token: str, max_messages: int = 50) -> list[dict]:
+def fetch_inbox_messages(token: str, max_messages: int = 50) -> list[dict]:
     """
-    Legacy version: Return messages whose subject starts with 'Profiles - BS:' from
+    Return messages whose subject starts with 'Profiles - BS:' from
     Inbox AND all its subfolders (handles Outlook routing rules).
-    Used as fallback when email_handler is not available.
     """
     prefix_lower = SUBJECT_PREFIX.lower()
     headers = _graph_headers(token)
@@ -234,30 +177,15 @@ def fetch_inbox_messages_legacy(token: str, max_messages: int = 50) -> list[dict
     # Sort newest first
     unique.sort(key=lambda m: m.get("receivedDateTime", ""), reverse=True)
     return unique
-
-
-def fetch_message_attachments_legacy(token: str, message_id: str) -> list[dict]:
-    """
-    Legacy version: Return list of attachment dicts with name + contentBytes (decoded).
-    Used as fallback when email_handler is not available.
-    """
+def fetch_message_attachments(token: str, message_id: str) -> list[dict]:
+    """Return list of attachment dicts with name + contentBytes (decoded)."""
     url = (
         f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}"
         f"/messages/{message_id}/attachments"
         f"?$select=name,contentBytes,contentType,size"
     )
-    try:
-        resp = requests.get(url, headers=_graph_headers(token), timeout=30)
-        if resp.status_code == 400:
-            raise Exception(
-                f"❌ 400 Bad Request: Message ID may be malformed, expired, or inaccessible. "
-                f"This email will be skipped. Message ID: {message_id}"
-            )
-        resp.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        st.error(f"Failed to fetch attachments: {e}")
-        raise
-
+    resp = requests.get(url, headers=_graph_headers(token), timeout=30)
+    resp.raise_for_status()
     raw = resp.json().get("value", [])
 
     attachments = []
@@ -277,448 +205,706 @@ def fetch_message_attachments_legacy(token: str, message_id: str) -> list[dict]:
     return attachments
 
 
-def get_resume_attachments(message_id: str, token: str = None) -> list[dict]:
-    """
-    Fetch resume attachments (PDF, DOCX, DOC) from a message.
+def mark_message_read(token: str, message_id: str) -> None:
+    url = f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/messages/{message_id}"
+    requests.patch(url, headers=_graph_headers(token), json={"isRead": True}, timeout=15)
 
-    ✅ HANDLES 400 ERRORS with detailed diagnostics
-    Uses new email_handler if available, otherwise falls back to legacy.
 
-    Args:
-        message_id: Message ID from list_inbox_messages
-        token: Access token (auto-acquired if not provided)
-
-    Returns:
-        list: Attachments with name, bytes, contentType
-    """
-    if not token:
-        token = _get_token()
-
+def move_message_to_folder(token: str, message_id: str, folder_name: str = "Processed Profiles") -> None:
+    """Move message to a sub-folder (creates it if it doesn't exist)."""
     try:
-        # Try using new email_handler first
-        if AZURE_AUTH_AVAILABLE:
-            attachments = fetch_message_attachments(INBOX_EMAIL, message_id, token=token)
-        else:
-            # Fallback to legacy method
-            attachments = fetch_message_attachments_legacy(token, message_id)
+        # Find or create folder
+        folders_url = f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/mailFolders/Inbox/childFolders"
+        resp = requests.get(folders_url, headers=_graph_headers(token), timeout=15)
+        folders = resp.json().get("value", []) if resp.status_code == 200 else []
+        folder_id = next((f["id"] for f in folders if f.get("displayName") == folder_name), None)
 
-        # Filter for resume file types
-        resume_exts = ("pdf", "docx", "doc")
-        resume_files = []
-
-        for att in attachments:
-            name = str(att.get("name", "")).strip()
-            ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
-
-            if ext in resume_exts:
-                resume_files.append(att)
-
-        return resume_files
-
-    except Exception as e:
-        error_msg = str(e)
-
-        # Provide specific guidance for common errors
-        if "400 Bad Request" in error_msg:
-            st.error(
-                f"⚠️ **Could not fetch attachments from this email**\n\n"
-                f"This usually means:\n"
-                f"• The email has been deleted or moved\n"
-                f"• The message ID has expired\n"
-                f"• You lack permission to access this message\n\n"
-                f"**Action:** This email will be marked as processed and skipped.\n\n"
-                f"Details: {error_msg}"
+        if not folder_id:
+            create_resp = requests.post(
+                folders_url,
+                headers=_graph_headers(token),
+                json={"displayName": folder_name},
+                timeout=15,
             )
-        else:
-            st.error(f"Error fetching attachments: {error_msg}")
+            if create_resp.status_code in (200, 201):
+                folder_id = create_resp.json().get("id")
 
-        return []
-
-
-def mark_message_read_safe(token: str, message_id: str) -> None:
-    """Mark a message as read with error handling."""
-    try:
-        if AZURE_AUTH_AVAILABLE:
-            mark_message_read(INBOX_EMAIL, message_id, token)
-        else:
-            url = f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/messages/{message_id}"
-            requests.patch(url, headers=_graph_headers(token), json={"isRead": True}, timeout=15)
-    except Exception as e:
-        st.warning(f"Could not mark message as read: {e}")
+        if folder_id:
+            move_url = f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/messages/{message_id}/move"
+            requests.post(move_url, headers=_graph_headers(token), json={"destinationId": folder_id}, timeout=15)
+    except Exception:
+        pass  # Moving is best-effort
 
 
-def move_message_to_folder_safe(token: str, message_id: str) -> None:
-    """Move message to 'Processed Profiles' folder."""
-    try:
-        if AZURE_AUTH_AVAILABLE:
-            # Try to get or create 'Processed Profiles' folder
-            # For now, just use move_message_to_folder with 'ProcessedMail' ID
-            # In real implementation, you'd fetch the folder ID first
-            move_message_to_folder(INBOX_EMAIL, message_id, "ProcessedMail", token)
-        else:
-            # Legacy version - try to move to DeletedItems as fallback
-            url = f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/messages/{message_id}/move"
-            requests.post(url, headers=_graph_headers(token), json={"destinationId": "DeletedItems"}, timeout=15)
-    except Exception as e:
-        st.warning(f"Could not move message: {e}")
+# ── Email body table parser ───────────────────────────────────
+
+HEADER_KEYS = {
+    "s.no": "sno", "sno": "sno", "s no": "sno", "s_no": "sno",
+    "jr_no": "jr_no", "jr no": "jr_no", "jr number": "jr_no", "jr_number": "jr_no",
+    "candidate_name": "candidate_name", "candidate name": "candidate_name", "name": "candidate_name",
+    "resume": "resume", "resume file": "resume", "file": "resume",
+}
+
+_STOP_WORDS = {"hi", "hello", "dear", "regards", "thanks", "thank", "sincerely", "best"}
 
 
-# ─────────────────────────────────────────────────────────────
-# TABLE PARSING
-# ─────────────────────────────────────────────────────────────
-
-def parse_body_table(body_html: str) -> list[dict]:
+def _find_header_tokens(line: str) -> list[tuple]:
     """
-    Parse an HTML email body table into candidate rows.
-    Extracts: Candidate Name, Email, Phone, JR Number
+    Locate all known header keywords in a line (supports multi-word like 'candidate name').
+    Returns list of (char_start, char_end, canonical_key) sorted by position.
     """
-    if not body_html:
-        return []
+    found = []
+    line_lower = line.lower()
+    sorted_keys = sorted(HEADER_KEYS.keys(), key=lambda x: -len(x))
+    used_ranges = []
+    for key in sorted_keys:
+        pattern = re.sub(r"[ _]", r"[ _]", re.escape(key))
+        for m in re.finditer(pattern, line_lower):
+            start, end = m.start(), m.end()
+            if any(s <= start < e or s < end <= e for s, e in used_ranges):
+                continue
+            used_ranges.append((start, end))
+            found.append((start, end, HEADER_KEYS[key]))
+    found.sort(key=lambda x: x[0])
+    return found
 
+
+def _is_footer(line: str) -> bool:
+    first = line.strip().split()[0].lower().rstrip(",") if line.strip() else ""
+    return first in _STOP_WORDS
+
+
+def _make_row(parts: list, col_map: dict) -> dict | None:
+    def get(key):
+        i = col_map.get(key)
+        return parts[i].strip() if i is not None and i < len(parts) and isinstance(parts[i], str) else ""
+    jr_no = get("jr_no")
+    candidate_name = get("candidate_name")
+    if not jr_no and not candidate_name:
+        return None
+    if not re.search(r"\w", get("sno") + jr_no + candidate_name):
+        return None
+    return {
+        "sno": _safe(get("sno")),
+        "jr_no": _safe(jr_no),
+        "candidate_name": _safe(candidate_name),
+        "resume": _safe(get("resume")),
+    }
+
+
+def _extract_rows(lines: list, col_map: dict, col_starts: list = None, splitter: str = None) -> list[dict]:
     rows = []
-    # Pattern: <td>value</td> cells in table rows
-    row_pattern = r"<tr[^>]*>(.*?)</tr>"
-    cell_pattern = r"<td[^>]*>(.*?)</td>"
-
-    for row_match in re.finditer(row_pattern, body_html, re.IGNORECASE | re.DOTALL):
-        row_html = row_match.group(1)
-        cells = re.findall(cell_pattern, row_html, re.IGNORECASE | re.DOTALL)
-
-        if len(cells) >= 4:
-            # Extract text and clean HTML
-            def clean_text(html_text):
-                text = re.sub(r"<[^>]+>", "", html_text)
-                return _safe(text)
-
-            candidate_name = clean_text(cells[0])
-            email = clean_text(cells[1])
-            phone = clean_text(cells[2])
-            jr_number = clean_text(cells[3])
-
-            if candidate_name and email:
-                rows.append({
-                    "Candidate Name": candidate_name,
-                    "Email": email,
-                    "Phone": phone,
-                    "JR Number": jr_number,
-                })
-
+    for line in lines:
+        if not line.strip():
+            continue
+        if _is_footer(line):
+            break
+        if col_starts:
+            parts = [
+                line[col_starts[i]: col_starts[i + 1]].strip() if col_starts[i] <= len(line) else ""
+                for i in range(len(col_starts) - 1)
+            ] + [line[col_starts[-1]:].strip() if col_starts[-1] <= len(line) else ""]
+        else:
+            parts = [p.strip() for p in re.split(splitter, line)]
+            if splitter and "|" in splitter:
+                parts = [p for p in parts if p]
+        row = _make_row(parts, col_map)
+        if row:
+            rows.append(row)
     return rows
 
 
-def _get_jr_meta(jr_no: str) -> dict:
-    """Get JR metadata from database."""
+def parse_body_table(html_body: str) -> list[dict]:
+    """
+    Parse the candidate table from the email body.
+    Expected columns: s.no, jr_no, candidate_name, resume  (order may vary)
+
+    Handles all common formats in priority order:
+      1. HTML <table>
+      2. Tab-separated
+      3. Pipe-separated
+      4. Comma-separated
+      5. Space-aligned plain text (e.g. typed in Outlook)
+
+    Returns list of dicts with keys: sno, jr_no, candidate_name, resume
+    """
+
+    # ── 1. HTML <table> ───────────────────────────────────────────────────────
+    if re.search(r"<table", html_body, re.IGNORECASE):
+        tr_blocks = re.findall(r"<tr[^>]*>(.*?)</tr>", html_body, re.IGNORECASE | re.DOTALL)
+        table_rows = []
+        for tr in tr_blocks:
+            cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", tr, re.IGNORECASE | re.DOTALL)
+            clean = [re.sub(r"<[^>]+>", " ", c).replace("&nbsp;", " ").replace("&amp;", "&").strip() for c in cells]
+            if any(clean):
+                table_rows.append(clean)
+        if table_rows:
+            for hi, hrow in enumerate(table_rows):
+                tokens = _find_header_tokens(" | ".join(hrow))
+                if len(tokens) >= 2:
+                    cm = {}
+                    for ci, cell in enumerate(hrow):
+                        toks = _find_header_tokens(cell)
+                        if toks:
+                            cm[toks[0][2]] = ci
+                    if len(cm) >= 2:
+                        rows = []
+                        for cells in table_rows[hi + 1:]:
+                            if cells and _is_footer(cells[0]):
+                                break
+                            row = _make_row(cells, cm)
+                            if row:
+                                rows.append(row)
+                        if rows:
+                            return rows
+                    break
+
+    # ── Strip HTML to plain text ──────────────────────────────────────────────
+    text = re.sub(r"<[^>]+>", " ", html_body)
+    for ent, rep in [("&nbsp;", " "), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">")]:
+        text = text.replace(ent, rep)
+    text = re.sub(r"&#\d+;", "", text)
+    text = re.sub(r"&[a-z]+;", " ", text)
+    lines = [line for line in text.splitlines() if line.strip()]
+
+    # Find header line using multi-word-aware token finder
+    header_idx, header_tokens, header_line = None, [], ""
+    for idx, line in enumerate(lines):
+        tokens = _find_header_tokens(line)
+        if len(tokens) >= 2:
+            header_idx = idx
+            header_tokens = tokens
+            header_line = line
+            break
+
+    if header_idx is None:
+        return []
+
+    data_lines = lines[header_idx + 1:]
+    col_map = {tok[2]: i for i, tok in enumerate(header_tokens)}
+
+    # ── 2. Tab-separated ──────────────────────────────────────────────────────
+    if "\t" in header_line:
+        return _extract_rows(data_lines, col_map, splitter=r"\t+")
+
+    # ── 3. Pipe-separated ─────────────────────────────────────────────────────
+    if "|" in header_line:
+        pipe_parts = [p.strip() for p in header_line.split("|") if p.strip()]
+        cm = {}
+        for i, p in enumerate(pipe_parts):
+            toks = _find_header_tokens(p)
+            if toks:
+                cm[toks[0][2]] = i
+        if len(cm) >= 2:
+            return _extract_rows(data_lines, cm, splitter=r"\|")
+
+    # ── 4. Comma-separated ────────────────────────────────────────────────────
+    if "," in header_line and header_line.count(",") >= 2:
+        comma_parts = [p.strip() for p in header_line.split(",")]
+        cm = {}
+        for i, p in enumerate(comma_parts):
+            toks = _find_header_tokens(p)
+            if toks:
+                cm[toks[0][2]] = i
+        if len(cm) >= 2:
+            return _extract_rows(data_lines, cm, splitter=r",")
+
+    # ── 5. Space-aligned: use char offsets of header token starts ─────────────
+    col_starts = [tok[0] for tok in header_tokens]
+    return _extract_rows(data_lines, col_map, col_starts=col_starts)
+
+
+def match_attachment(candidate_name: str, attachments: list[dict]) -> dict | None:
+    """
+    Try to find the best matching attachment for a candidate when
+    the resume filename is not specified in the table.
+    Uses partial name matching (case-insensitive, spaces/dots/underscores ignored).
+    """
+    if not candidate_name or not attachments:
+        return None
+
+    def normalise(s):
+        return re.sub(r"[\s._-]+", "", s.lower())
+
+    name_norm = normalise(candidate_name)
+
+    # Split candidate name into parts to support partial matching
+    name_parts = [p for p in re.split(r"\s+", candidate_name.lower()) if len(p) > 2]
+
+    best = None
+    best_score = 0
+
+    for att in attachments:
+        att_norm = normalise(att["name"].rsplit(".", 1)[0])  # strip extension
+        # Exact name match
+        if name_norm and name_norm in att_norm:
+            return att
+
+        # Partial: count how many name parts appear in attachment filename
+        score = sum(1 for part in name_parts if part in att_norm)
+        if score > best_score:
+            best_score = score
+            best = att
+
+    return best if best_score >= 1 else None
+
+
+def check_already_processed(email_message_id: str) -> bool:
+    """Check Supabase if this email has been processed before (by email_message_id)."""
     try:
-        jr_list = fetch_active_jr_master()
-        for jr in jr_list:
-            if str(jr.get("jr_no", "")).strip() == str(jr_no).strip():
-                return {
-                    "skill_name": jr.get("skill_name", ""),
-                    "client_recruiter": jr.get("client_recruiter", ""),
-                    "recruiter_email": jr.get("recruiter_email", ""),
-                }
-    except Exception as e:
-        st.warning(f"Could not fetch JR metadata: {e}")
-    return {}
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
+            f"?source_email_id=eq.{email_message_id}&select=id&limit=1",
+            headers=_supabase_headers(),
+            timeout=15,
+        )
+        if resp.status_code == 200 and resp.json():
+            return True
+    except Exception:
+        pass
+    return False
 
 
 # ─────────────────────────────────────────────────────────────
-# STATE MANAGEMENT
+# LOAD JR MASTER
 # ─────────────────────────────────────────────────────────────
+try:
+    jr_master_rows = fetch_active_jr_master()
+except Exception as e:
+    jr_master_rows = []
+    st.warning(f"JR master lookup unavailable: {e}")
 
+jr_master_by_number = {}
+for row in jr_master_rows:
+    jr_no = _safe(row.get("jr_no"))
+    if jr_no:
+        jr_master_by_number[jr_no] = row
+
+
+def _get_jr_meta(jr_no: str) -> dict:
+    return jr_master_by_number.get(jr_no, {})
+
+
+# ─────────────────────────────────────────────────────────────
+# SESSION STATE
+# ─────────────────────────────────────────────────────────────
+if "inbox_messages" not in st.session_state:
+    st.session_state.inbox_messages = []
+if "inbox_last_fetched" not in st.session_state:
+    st.session_state.inbox_last_fetched = None
 if "inbox_processing_log" not in st.session_state:
     st.session_state.inbox_processing_log = []
 
 
 # ─────────────────────────────────────────────────────────────
-# MAIN PROCESSING
+# UI — FETCH EMAILS
 # ─────────────────────────────────────────────────────────────
+col_fetch, col_info = st.columns([1, 3])
 
-col1, col2, col3 = st.columns(3)
+with col_fetch:
+    fetch_clicked = st.button("🔄 Fetch Emails", type="primary", use_container_width=True)
 
-with col1:
-    fetch_emails_btn = st.button("🔄 Fetch Emails", key="fetch_btn")
+with col_info:
+    if st.session_state.inbox_last_fetched:
+        st.caption(f"Last fetched: **{st.session_state.inbox_last_fetched}**")
+    st.caption(
+        f"Scanning inbox of `{INBOX_EMAIL}` for subjects starting with "
+        f"`{SUBJECT_PREFIX}`"
+    )
 
-with col2:
-    submit_mode = st.checkbox("✅ Submit to SAP (uncheck for dry-run)", value=False)
+if fetch_clicked:
+    with st.spinner("Connecting to mailbox…"):
+        try:
+            token = _app_token()
 
-with col3:
-    max_msgs = st.number_input("Max emails to process", min_value=1, max_value=100, value=20)
+            # ── Scan Inbox + all subfolders for debug visibility ─────────────────
+            def _fetch_folder_subjects(folder_id: str, label: str) -> list[str]:
+                url = (
+                    f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}"
+                    f"/mailFolders/{folder_id}/messages"
+                    f"?$top=5&$select=id,subject,receivedDateTime"
+                    f"&$orderby=receivedDateTime desc"
+                )
+                r = requests.get(url, headers=_graph_headers(token), timeout=20)
+                msgs = r.json().get("value", []) if r.status_code == 200 else []
+                return [
+                    f"[{label}] {m.get('receivedDateTime','')[:16].replace('T',' ')}  —  {m.get('subject','(no subject)')}"
+                    for m in msgs
+                ]
 
-if fetch_emails_btn:
-    st.write("---")
+            # Show all inbox subfolders with counts
+            subfolders_resp = requests.get(
+                f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}"
+                f"/mailFolders/Inbox/childFolders?$top=50",
+                headers=_graph_headers(token), timeout=20
+            )
+            subfolders = subfolders_resp.json().get("value", []) if subfolders_resp.status_code == 200 else []
+            st.session_state.inbox_all_folders = (
+                ["[Inbox root]  (checking...)"]
+                + [
+                    f"[Inbox/{f.get('displayName','?')}]  "
+                    f"totalItems: {f.get('totalItemCount',0)}, unread: {f.get('unreadItemCount',0)}"
+                    for f in subfolders
+                ]
+            )
+
+            # Fetch latest subjects from Inbox root + every subfolder
+            raw_subjects = _fetch_folder_subjects("Inbox", "Inbox")
+            for f in subfolders:
+                fid = f.get("id", "")
+                fname = f.get("displayName", "")
+                if fid:
+                    raw_subjects += _fetch_folder_subjects(fid, f"Inbox/{fname}")
+
+            st.session_state.inbox_raw_subjects = raw_subjects
+
+            # ── Now fetch filtered messages ────────────────────────────────────
+            messages = fetch_inbox_messages(token, max_messages=50)
+            st.session_state.inbox_messages = messages
+            st.session_state.inbox_last_fetched = datetime.now().strftime("%d %b %Y, %I:%M %p")
+            if messages:
+                st.success(f"Found **{len(messages)}** matching email(s).")
+            else:
+                st.info("No matching emails found in inbox.")
+        except Exception as exc:
+            st.error(f"Failed to fetch emails: {exc}")
+
+# ── Debug: show all folders + raw subjects ────────────────────────────
+if "inbox_raw_subjects" in st.session_state or "inbox_all_folders" in st.session_state:
+    with st.expander("🔍 Debug — All mail folders + latest subjects (before filter)", expanded=True):
+
+        # Show all folders with counts
+        if st.session_state.get("inbox_all_folders"):
+            st.markdown("**📂 All mail folders found on this mailbox:**")
+            for folder_line in st.session_state.inbox_all_folders:
+                st.markdown(f" `{folder_line}`")
+            st.divider()
+
+        # Show subjects per folder
+        prefix_lower = SUBJECT_PREFIX.lower()
+        raw_subjects = st.session_state.get("inbox_raw_subjects", [])
+        if raw_subjects:
+            st.markdown("**📨 Latest 5 emails per folder:**")
+            for subj in raw_subjects:
+                subj_text = subj.split("  —  ", 1)[-1] if "  —  " in subj else subj
+                match = subj_text.lower().startswith(prefix_lower)
+                icon = "✅" if match else "⬜"
+                st.markdown(f"{icon} `{subj}`")
+        st.caption("✅ = matches `Profiles - BS:` prefix")
+
+messages = st.session_state.inbox_messages
+
+# ─────────────────────────────────────────────────────────────
+# DISPLAY EMAILS & PROCESS
+# ─────────────────────────────────────────────────────────────
+if not messages:
+    st.info("Click **Fetch Emails** to scan the inbox.")
+    st.stop()
+
+st.divider()
+st.subheader(f"📨 {len(messages)} Email(s) Found")
+
+# Show summary table of emails
+email_summary = []
+for msg in messages:
+    email_summary.append({
+        "Subject": _safe(msg.get("subject")),
+        "From": _safe(msg.get("from", {}).get("emailAddress", {}).get("address")),
+        "Received": _safe(msg.get("receivedDateTime", ""))[:16].replace("T", " "),
+        "Has Attachments": "✅" if msg.get("hasAttachments") else "❌",
+        "Read": "✅" if msg.get("isRead") else "🔵 Unread",
+        "ID": msg.get("id", ""),
+    })
+
+summary_df = pd.DataFrame(email_summary)
+st.dataframe(
+    summary_df.drop(columns=["ID"]),
+    use_container_width=True,
+    hide_index=True,
+)
+
+st.divider()
+
+# ── Per-email processing ──────────────────────────────────────
+submit_mode = st.toggle(
+    "Submit to SAP (Live Mode)",
+    value=False,
+    help="ON = actually submit candidates to SAP. OFF = dry run (fill + cancel).",
+)
+if submit_mode:
+    st.caption("🔴 Live mode — candidates will be submitted to SAP.")
+else:
+    st.caption("🟡 Dry run mode — SAP form will be filled and cancelled.")
+
+process_all = st.button(
+    "⚡ Process All Emails → OneDrive → SAP",
+    type="primary",
+    use_container_width=True,
+    help="Downloads attachments, uploads to OneDrive, parses resumes, inserts into DB, uploads to SAP.",
+)
+
+if process_all:
+    token = _app_token()
+    today_text = date.today().strftime("%d-%b-%Y")
+    overall_log = []
+    bot = None
+
+    progress_bar = st.progress(0)
+    status_box = st.empty()
 
     try:
-        token = _get_token()
+        status_box.info("Connecting to SAP…")
+        bot = SAPBot()
+        bot.start()
+        bot.login()
+        status_box.success("SAP connected ✅")
+    except Exception as sap_exc:
+        st.error(f"SAP connection failed: {sap_exc}")
+        bot = None
 
-        # Fetch emails using new handler if available, otherwise use legacy
-        if AZURE_AUTH_AVAILABLE:
+    for msg_idx, msg in enumerate(messages):
+        msg_id = msg.get("id", "")
+        subject = _safe(msg.get("subject"))
+        from_email = _safe(msg.get("from", {}).get("emailAddress", {}).get("address"))
+
+        # Extract skill from subject: "Profiles - BS: SAP Architect" → "SAP Architect"
+        skill_from_subject = ""
+        subj_match = re.match(
+            r"profiles\s*-\s*bs:\s*(.+)", subject, re.IGNORECASE
+        )
+        if subj_match:
+            skill_from_subject = subj_match.group(1).strip()
+
+        st.markdown(f"### 📧 Email {msg_idx + 1}/{len(messages)}: `{subject}`")
+        st.caption(f"From: {from_email}")
+
+        # Check if already processed
+        if check_already_processed(msg_id):
+            st.info("⏭️ Already processed — skipping.")
+            overall_log.append({
+                "Email": subject, "Candidate": "—", "Status": "Already Processed", "JR": "—"
+            })
+            continue
+
+        # Parse candidate table from body
+        body_content = msg.get("body", {}).get("content", "")
+        candidates_in_email = parse_body_table(body_content)
+
+        if not candidates_in_email:
+            st.warning("⚠️ Could not parse candidate table from email body. Skipping.")
+            overall_log.append({
+                "Email": subject, "Candidate": "—", "Status": "Table Parse Failed", "JR": "—"
+            })
+            continue
+
+        st.write(f"Found **{len(candidates_in_email)}** candidate row(s) in email body:")
+        st.dataframe(pd.DataFrame(candidates_in_email), hide_index=True, use_container_width=True)
+
+        # Fetch attachments
+        try:
+            attachments = fetch_message_attachments(token, msg_id)
+            st.write(f"Downloaded **{len(attachments)}** resume attachment(s): "
+                     + ", ".join(a["name"] for a in attachments))
+        except Exception as att_exc:
+            attachments = []
+            st.warning(f"Could not fetch attachments: {att_exc}")
+
+        # Build attachment lookup by filename
+        att_by_name = {a["name"].lower(): a for a in attachments}
+
+        # ── Process each candidate row ───────────────────────
+        for cand in candidates_in_email:
+            jr_no = cand["jr_no"]
+            candidate_name = cand["candidate_name"]
+            specified_resume = cand["resume"]
+
+            cand_label = candidate_name or specified_resume or f"Row {cand['sno']}"
+            st.markdown(f"**→ {cand_label}** (JR: `{jr_no}`)")
+
+            # Resolve attachment
+            att = None
+            if specified_resume:
+                att = att_by_name.get(specified_resume.lower())
+                if not att:
+                    # Try partial filename match
+                    for att_name, a in att_by_name.items():
+                        if specified_resume.lower() in att_name or att_name in specified_resume.lower():
+                            att = a
+                            break
+            if not att and candidate_name:
+                att = match_attachment(candidate_name, attachments)
+
+            if not att:
+                msg_str = f"Resume not found for **{cand_label}** (looked for `{specified_resume or candidate_name}`)"
+                st.error(f"❌ {msg_str}")
+                overall_log.append({
+                    "Email": subject, "Candidate": cand_label, "Status": "Resume Not Found", "JR": jr_no
+                })
+                continue
+
+            file_name = att["name"]
+            file_bytes = att["bytes"]
+
+            # 1. Upload to hrvolibot OneDrive  →  Inbox Resumes/<JR>/<file>
             try:
-                messages = list_inbox_messages(INBOX_EMAIL, subject_filter="Profiles", max_messages=max_msgs, token=token)
-                # Filter by exact prefix
-                prefix_lower = SUBJECT_PREFIX.lower()
-                messages = [
-                    m for m in messages
-                    if _safe(m.get("subject", "")).lower().startswith(prefix_lower)
-                ]
-            except Exception as e:
-                st.warning(f"Failed to fetch with email_handler: {e}. Using legacy method...")
-                messages = fetch_inbox_messages_legacy(token, max_messages=max_msgs)
-        else:
-            messages = fetch_inbox_messages_legacy(token, max_messages=max_msgs)
+                resume_link = upload_resume_to_hrvolibot_drive(
+                    file_name, file_bytes, jr_no
+                )
+                st.write(
+                    f"  ☁️ Uploaded to hrvolibot OneDrive: "
+                    f"`{HRVOLIBOT_ROOT_FOLDER}/{jr_folder_name(jr_no)}/{file_name}`"
+                )
+            except Exception as od_exc:
+                resume_link = ""
+                st.warning(f"  ⚠️ OneDrive upload failed: {od_exc}")
 
-        if not messages:
-            st.info(f"No emails found with subject starting with '{SUBJECT_PREFIX}'")
-        else:
-            st.success(f"✅ Found {len(messages)} email(s)")
-
-            # Initialize SAP bot
-            bot = None
+            # 2. Parse resume
+            parsed = {}
             try:
-                bot = SAPBot()
-                st.success("✅ SAP bot connected")
-            except Exception as e:
-                st.warning(f"⚠️ SAP bot connection failed: {e}. Will skip SAP uploads.")
+                file_obj = io.BytesIO(file_bytes)
+                file_obj.name = file_name
+                parsed = parse_resume(file_obj)
+            except Exception as parse_exc:
+                st.warning(f"  ⚠️ Resume parse failed: {parse_exc}")
 
-            # Process each message
-            progress_bar = st.progress(0)
-            overall_log = []
+            # Build row dict
+            jr_meta = _get_jr_meta(jr_no)
+            skill = jr_meta.get("skill_name", "") or skill_from_subject
 
-            for msg_idx, msg in enumerate(messages):
-                msg_id = msg.get("id", "")
-                subject = _safe(msg.get("subject", ""))
+            # Split candidate_name from email table into first/last
+            name_parts = candidate_name.split(" ", 1) if candidate_name else []
+            first_name = parsed.get("first_name") or (name_parts[0] if name_parts else "")
+            last_name = parsed.get("last_name") or (name_parts[1] if len(name_parts) > 1 else "")
 
-                st.write(f"\n### 📧 Email {msg_idx + 1}: {subject}")
+            row_data = {
+                "JR Number": jr_no,
+                "Date": today_text,
+                "Skill": skill,
+                "File Name": file_name,
+                "First Name": first_name,
+                "Last Name": last_name,
+                "Email": parsed.get("email", ""),
+                "Phone": parsed.get("phone", ""),
+                "Current Company": parsed.get("current_company", ""),
+                "Total Experience": parsed.get("total_experience", ""),
+                "Relevant Experience": parsed.get("relevant_experience", ""),
+                "Current CTC": parsed.get("current_ctc", ""),
+                "Expected CTC": parsed.get("expected_ctc", ""),
+                "Notice Period": parsed.get("notice_period", ""),
+                "Current Location": parsed.get("current_location", ""),
+                "Preferred Location": parsed.get("preferred_location", ""),
+                "Actual Status": "Not Called",
+                "Call Iteration": "First Call",
+                "comments/Availability": "",
+                "Error": "",
+                "Upload to SAP": "Yes",
+                "client_recruiter": jr_meta.get("client_recruiter", ""),
+                "client_recruiter_email": jr_meta.get("recruiter_email", ""),
+                "client_email_sent": "No",
+                "recruiter": user.get("name", ""),
+                "recruiter_email": user.get("email", ""),
+                # Store the source email ID to detect re-processing
+                "source_email_id": msg_id,
+            }
 
-                # Parse email body for candidate rows
-                body_html = msg.get("body", {}).get("content", "")
-                candidates = parse_body_table(body_html)
+            # 3. Insert into Supabase DB
+            db_record_id = None
+            try:
+                db_record = insert_resume_record(row_data, user, resume_link=resume_link)
+                db_record_id = str(db_record.get("id", "")).strip()
+                st.write(f"  💾 Saved to DB (id: `{db_record_id}`)")
+            except Exception as db_exc:
+                st.error(f"  ❌ DB insert failed: {db_exc}")
+                overall_log.append({
+                    "Email": subject, "Candidate": cand_label, "Status": f"DB Error: {db_exc}", "JR": jr_no
+                })
+                continue
 
-                if not candidates:
-                    st.warning("  ⚠️ No candidate table found in email body")
-                    overall_log.append({
-                        "Email": subject,
-                        "Candidate": "N/A",
-                        "Status": "No candidates found",
-                        "JR": "N/A"
-                    })
-                    progress_bar.progress((msg_idx + 1) / len(messages))
-                    continue
+            # 4. Upload to SAP
+            if not bot:
+                st.warning("  ⚠️ SAP bot not connected — skipping SAP upload.")
+                overall_log.append({
+                    "Email": subject, "Candidate": cand_label, "Status": "Skipped (SAP unavailable)", "JR": jr_no
+                })
+                continue
 
-                st.write(f"  Found {len(candidates)} candidate(s)")
+            sap_status = "Failed"
+            sap_error = ""
+            try:
+                file_obj = io.BytesIO(file_bytes)
+                file_obj.name = file_name
+                upload_to_sap(
+                    bot,
+                    {
+                        "jr_number": jr_no,
+                        "first_name": first_name,
+                        "last_name": last_name,
+                        "submit": submit_mode,
+                        "email": row_data["Email"],
+                        "phone": row_data["Phone"],
+                        "country_code": "+91",
+                        "country": "India",
+                        "resume_file": file_obj,
+                    },
+                )
+                sap_status = "Done"
+                st.success(f"  ✅ SAP upload {'submitted' if submit_mode else 'dry-run'}: **{cand_label}**")
+            except Exception as sap_exc:
+                sap_error = str(sap_exc)
+                st.error(f"  ❌ SAP upload failed: {sap_error}")
 
-                # Process each candidate
-                for cand_idx, candidate in enumerate(candidates):
-                    candidate_name = _safe(candidate.get("Candidate Name", ""))
-                    email = _safe(candidate.get("Email", ""))
-                    jr_no = _safe(candidate.get("JR Number", ""))
-
-                    cand_label = f"{candidate_name} ({email})"
-                    st.write(f"\n  **Candidate {cand_idx + 1}: {cand_label}** (JR: {jr_no})")
-
-                    # Extract skill from subject
-                    skill_match = re.search(r"Profiles - BS:\s*(.+?)(?:\s*[-–]|$)", subject)
-                    skill_from_subject = skill_match.group(1).strip() if skill_match else ""
-
-                    if not jr_no:
-                        st.warning(f"    ⚠️ No JR number found. Skipping.")
-                        overall_log.append({
-                            "Email": subject, "Candidate": cand_label, "Status": "No JR number", "JR": "N/A"
-                        })
-                        continue
-
-                    # Fetch attachments for this candidate
-                    try:
-                        file_attachments = get_resume_attachments(msg_id, token)
-                        if not file_attachments:
-                            st.info(f"    ℹ️ No resume attachments found. Skipping.")
-                            overall_log.append({
-                                "Email": subject, "Candidate": cand_label, "Status": "No attachments", "JR": jr_no
-                            })
-                            continue
-                    except Exception as e:
-                        st.error(f"    ❌ Attachment error: {str(e)}")
-                        overall_log.append({
-                            "Email": subject, "Candidate": cand_label, "Status": f"Attachment error: {str(e)[:50]}", "JR": jr_no
-                        })
-                        continue
-
-                    # Process first attachment only
-                    att = file_attachments[0]
-                    file_name = _safe(att.get("name", ""))
-                    file_bytes = att.get("bytes", b"")
-
-                    st.write(f"    📎 Processing: {file_name}")
-
-                    # Prepare resume data
-                    today_text = str(date.today())
-                    resume_link = ""
-
-                    # 1. Upload to OneDrive
-                    try:
-                        resume_link = upload_resume_to_hrvolibot_drive(
-                            file_name, file_bytes, jr_no
-                        )
-                        st.write(
-                            f"    ☁️ Uploaded to hrvolibot OneDrive: "
-                            f"`{HRVOLIBOT_ROOT_FOLDER}/{jr_folder_name(jr_no)}/{file_name}`"
-                        )
-                    except Exception as od_exc:
-                        resume_link = ""
-                        st.warning(f"    ⚠️ OneDrive upload failed: {od_exc}")
-
-                    # 2. Parse resume
-                    parsed = {}
-                    try:
-                        file_obj = io.BytesIO(file_bytes)
-                        file_obj.name = file_name
-                        parsed = parse_resume(file_obj)
-                    except Exception as parse_exc:
-                        st.warning(f"    ⚠️ Resume parse failed: {parse_exc}")
-
-                    # Build row dict
-                    jr_meta = _get_jr_meta(jr_no)
-                    skill = jr_meta.get("skill_name", "") or skill_from_subject
-
-                    # Split candidate_name from email table into first/last
-                    name_parts = candidate_name.split(" ", 1) if candidate_name else []
-                    first_name = parsed.get("first_name") or (name_parts[0] if name_parts else "")
-                    last_name = parsed.get("last_name") or (name_parts[1] if len(name_parts) > 1 else "")
-
-                    row_data = {
-                        "JR Number": jr_no,
-                        "Date": today_text,
-                        "Skill": skill,
-                        "File Name": file_name,
-                        "First Name": first_name,
-                        "Last Name": last_name,
-                        "Email": parsed.get("email", ""),
-                        "Phone": parsed.get("phone", ""),
-                        "Current Company": parsed.get("current_company", ""),
-                        "Total Experience": parsed.get("total_experience", ""),
-                        "Relevant Experience": parsed.get("relevant_experience", ""),
-                        "Current CTC": parsed.get("current_ctc", ""),
-                        "Expected CTC": parsed.get("expected_ctc", ""),
-                        "Notice Period": parsed.get("notice_period", ""),
-                        "Current Location": parsed.get("current_location", ""),
-                        "Preferred Location": parsed.get("preferred_location", ""),
-                        "Actual Status": "Not Called",
-                        "Call Iteration": "First Call",
-                        "comments/Availability": "",
-                        "Error": "",
-                        "Upload to SAP": "Yes",
-                        "client_recruiter": jr_meta.get("client_recruiter", ""),
-                        "client_recruiter_email": jr_meta.get("recruiter_email", ""),
-                        "client_email_sent": "No",
-                        "recruiter": user.get("name", ""),
-                        "recruiter_email": user.get("email", ""),
-                        # Store the source email ID to detect re-processing
-                        "source_email_id": msg_id,
+            # 5. Update DB with SAP status
+            if db_record_id:
+                try:
+                    update_fields = {
+                        "upload_to_sap": sap_status,
+                        "error_message": sap_error[:500] if sap_error else "",
                     }
+                    requests.patch(
+                        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{db_record_id}",
+                        headers=_supabase_headers(),
+                        json=update_fields,
+                        timeout=15,
+                    )
+                    st.write(f"  📝 DB updated → `upload_to_sap = {sap_status}`")
+                except Exception as upd_exc:
+                    st.warning(f"  ⚠️ DB status update failed: {upd_exc}")
 
-                    # 3. Insert into Supabase DB
-                    db_record_id = None
-                    try:
-                        db_record = insert_resume_record(row_data, user, resume_link=resume_link)
-                        db_record_id = str(db_record.get("id", "")).strip()
-                        st.write(f"    💾 Saved to DB (id: `{db_record_id}`)")
-                    except Exception as db_exc:
-                        st.error(f"    ❌ DB insert failed: {db_exc}")
-                        overall_log.append({
-                            "Email": subject, "Candidate": cand_label, "Status": f"DB Error: {db_exc}", "JR": jr_no
-                        })
-                        continue
+            overall_log.append({
+                "Email": subject,
+                "Candidate": cand_label,
+                "JR": jr_no,
+                "Status": f"SAP {sap_status}" if sap_status == "Done" else f"SAP Failed: {sap_error[:60]}",
+            })
 
-                    # 4. Upload to SAP
-                    if not bot:
-                        st.warning("    ⚠️ SAP bot not connected — skipping SAP upload.")
-                        overall_log.append({
-                            "Email": subject, "Candidate": cand_label, "Status": "Skipped (SAP unavailable)", "JR": jr_no
-                        })
-                        continue
+        # Mark email as read + move to processed folder
+        try:
+            mark_message_read(token, msg_id)
+            move_message_to_folder(token, msg_id)
+            st.write("  📁 Email marked as read and moved to **Processed Profiles** folder.")
+        except Exception as mv_exc:
+            st.warning(f"  ⚠️ Could not mark/move email: {mv_exc}")
 
-                    sap_status = "Failed"
-                    sap_error = ""
-                    try:
-                        file_obj = io.BytesIO(file_bytes)
-                        file_obj.name = file_name
-                        upload_to_sap(
-                            bot,
-                            {
-                                "jr_number": jr_no,
-                                "first_name": first_name,
-                                "last_name": last_name,
-                                "submit": submit_mode,
-                                "email": row_data["Email"],
-                                "phone": row_data["Phone"],
-                                "country_code": "+91",
-                                "country": "India",
-                                "resume_file": file_obj,
-                            },
-                        )
-                        sap_status = "Done"
-                        st.success(f"    ✅ SAP upload {'submitted' if submit_mode else 'dry-run'}: **{cand_label}**")
-                    except Exception as sap_exc:
-                        sap_error = str(sap_exc)
-                        st.error(f"    ❌ SAP upload failed: {sap_error}")
+        progress_bar.progress((msg_idx + 1) / len(messages))
 
-                    # 5. Update DB with SAP status
-                    if db_record_id:
-                        try:
-                            update_fields = {
-                                "upload_to_sap": sap_status,
-                                "error_message": sap_error[:500] if sap_error else "",
-                            }
-                            requests.patch(
-                                f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{db_record_id}",
-                                headers=_supabase_headers(),
-                                json=update_fields,
-                                timeout=15,
-                            )
-                            st.write(f"    📝 DB updated → `upload_to_sap = {sap_status}`")
-                        except Exception as upd_exc:
-                            st.warning(f"    ⚠️ DB status update failed: {upd_exc}")
+    # Close SAP bot
+    if bot:
+        try:
+            bot.close()
+        except Exception:
+            pass
 
-                    overall_log.append({
-                        "Email": subject,
-                        "Candidate": cand_label,
-                        "JR": jr_no,
-                        "Status": f"SAP {sap_status}" if sap_status == "Done" else f"SAP Failed: {sap_error[:60]}",
-                    })
+    st.divider()
+    st.subheader("📊 Processing Summary")
+    if overall_log:
+        log_df = pd.DataFrame(overall_log)
+        st.dataframe(log_df, use_container_width=True, hide_index=True)
+        done_count = sum(1 for r in overall_log if "Done" in r.get("Status", ""))
+        st.metric("Successfully uploaded to SAP", done_count, delta=f"of {len(overall_log)} total")
+    else:
+        st.info("No candidates were processed.")
 
-                # Mark email as read + move to processed folder
-                try:
-                    mark_message_read_safe(token, msg_id)
-                    move_message_to_folder_safe(token, msg_id)
-                    st.write("  📁 Email marked as read.")
-                except Exception as mv_exc:
-                    st.warning(f"  ⚠️ Could not mark/move email: {mv_exc}")
-
-                progress_bar.progress((msg_idx + 1) / len(messages))
-
-            # Close SAP bot
-            if bot:
-                try:
-                    bot.close()
-                except Exception:
-                    pass
-
-            st.divider()
-            st.subheader("📊 Processing Summary")
-            if overall_log:
-                log_df = pd.DataFrame(overall_log)
-                st.dataframe(log_df, use_container_width=True, hide_index=True)
-                done_count = sum(1 for r in overall_log if "Done" in r.get("Status", ""))
-                st.metric("Successfully uploaded to SAP", done_count, delta=f"of {len(overall_log)} total")
-            else:
-                st.info("No candidates were processed.")
-
-            st.session_state.inbox_processing_log = overall_log
-
-    except Exception as e:
-        st.error(f"Processing failed: {e}")
-        import traceback
-        st.error(traceback.format_exc())
+    st.session_state.inbox_processing_log = overall_log
 
 # ── Show last run log if available ───────────────────────────
 elif st.session_state.inbox_processing_log:
@@ -736,56 +922,37 @@ elif st.session_state.inbox_processing_log:
 st.divider()
 st.subheader("🔍 Preview Individual Email")
 
-try:
-    token = _get_token()
+if messages:
+    email_options = [
+        f"{i+1}. {_safe(m.get('subject'))} — {_safe(m.get('receivedDateTime',''))[:10]}"
+        for i, m in enumerate(messages)
+    ]
+    selected_idx = st.selectbox("Select email to preview", range(len(messages)), format_func=lambda i: email_options[i])
+    selected_msg = messages[selected_idx]
 
-    if AZURE_AUTH_AVAILABLE:
+    body_html = selected_msg.get("body", {}).get("content", "")
+    candidates_preview = parse_body_table(body_html)
+
+    col_body, col_table = st.columns([1, 1])
+    with col_body:
+        with st.expander("📄 Raw Email Body (HTML)", expanded=False):
+            st.code(body_html[:3000], language="html")
+
+    with col_table:
+        st.markdown("**Parsed Candidate Table:**")
+        if candidates_preview:
+            st.dataframe(pd.DataFrame(candidates_preview), hide_index=True, use_container_width=True)
+        else:
+            st.warning("Could not parse candidate table from this email.")
+
+    if st.button("📎 Show Attachments", key="preview_attachments"):
         try:
-            messages = list_inbox_messages(INBOX_EMAIL, subject_filter="Profiles", max_messages=20, token=token)
-            prefix_lower = SUBJECT_PREFIX.lower()
-            messages = [
-                m for m in messages
-                if _safe(m.get("subject", "")).lower().startswith(prefix_lower)
-            ]
-        except Exception:
-            messages = fetch_inbox_messages_legacy(token, max_messages=20)
-    else:
-        messages = fetch_inbox_messages_legacy(token, max_messages=20)
-
-    if messages:
-        email_options = [
-            f"{i+1}. {_safe(m.get('subject'))} — {_safe(m.get('receivedDateTime',''))[:10]}"
-            for i, m in enumerate(messages)
-        ]
-        selected_idx = st.selectbox("Select email to preview", range(len(messages)), format_func=lambda i: email_options[i])
-        selected_msg = messages[selected_idx]
-
-        body_html = selected_msg.get("body", {}).get("content", "")
-        candidates_preview = parse_body_table(body_html)
-
-        col_body, col_table = st.columns([1, 1])
-        with col_body:
-            with st.expander("📄 Raw Email Body (HTML)", expanded=False):
-                st.code(body_html[:3000], language="html")
-
-        with col_table:
-            st.markdown("**Parsed Candidate Table:**")
-            if candidates_preview:
-                st.dataframe(pd.DataFrame(candidates_preview), hide_index=True, use_container_width=True)
+            token = _app_token()
+            atts = fetch_message_attachments(token, selected_msg["id"])
+            if atts:
+                for a in atts:
+                    st.write(f"- **{a['name']}** ({len(a['bytes']):,} bytes)")
             else:
-                st.warning("Could not parse candidate table from this email.")
-
-        if st.button("📎 Show Attachments", key="preview_attachments"):
-            try:
-                atts = get_resume_attachments(selected_msg["id"], token)
-                if atts:
-                    for a in atts:
-                        st.write(f"- **{a['name']}** ({len(a['bytes']):,} bytes)")
-                else:
-                    st.info("No resume attachments found.")
-            except Exception as e:
-                st.error(f"Could not fetch attachments: {e}")
-    else:
-        st.info("No emails found to preview")
-except Exception as e:
-    st.warning(f"Preview unavailable: {e}")
+                st.info("No resume attachments found.")
+        except Exception as e:
+            st.error(f"Could not fetch attachments: {e}")
