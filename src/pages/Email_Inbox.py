@@ -88,49 +88,70 @@ def _graph_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
 
-def fetch_inbox_messages(token: str, max_messages: int = 200) -> list[dict]:
+def fetch_inbox_messages(token: str, max_messages: int = 50) -> list[dict]:
     """
     Return messages from hrvolibot inbox whose subject starts with
-    'Profiles - BS:'. Tries server-side $filter first for reliability,
-    then falls back to a larger local-filter page if $filter is unsupported.
+    'Profiles - BS:'.
+
+    Strategy (most reliable first):
+      1. $search on subject keyword — scans entire inbox, not capped by position.
+      2. $filter startsWith — server-side exact prefix match (may be unsupported).
+      3. Plain page fetch + local filter — last resort, limited to max_messages.
+
+    Results from whichever strategy succeeds are always locally re-filtered
+    to guarantee only matching subjects are returned.
     """
     import urllib.parse
 
-    # OData requires single-quotes inside string literals to be escaped as ''
-    prefix_escaped = SUBJECT_PREFIX.replace("'", "''")
+    prefix_lower = SUBJECT_PREFIX.lower()
+    headers = _graph_headers(token)
 
-    url = (
+    # ── Strategy 1: $search on subject keyword ───────────────────────────────
+    # $search scans the full mailbox (ignores $top position) and is supported
+    # on shared mailboxes where $filter is not. Cannot be combined with $orderby.
+    search_keyword = "Profiles"   # short keyword; we re-filter locally for exact prefix
+    search_url = (
+        f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/mailFolders/Inbox/messages"
+        f"?$search=\"subject:{search_keyword}\""
+        f"&$top={max_messages}"
+        f"&$select=id,subject,from,receivedDateTime,body,hasAttachments,isRead"
+    )
+    resp = requests.get(search_url, headers=headers, timeout=30)
+
+    if resp.status_code == 200:
+        all_msgs = resp.json().get("value", [])
+        matched = [m for m in all_msgs if _safe(m.get("subject")).lower().startswith(prefix_lower)]
+        if matched:
+            return matched
+        # $search succeeded but returned 0 matches after local filter —
+        # fall through to try $filter in case $search ranking dropped them.
+
+    # ── Strategy 2: $filter startsWith ───────────────────────────────────────
+    prefix_escaped = SUBJECT_PREFIX.replace("'", "''")
+    filter_url = (
         f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/mailFolders/Inbox/messages"
         f"?$top={max_messages}"
         f"&$select=id,subject,from,receivedDateTime,body,hasAttachments,isRead"
         f"&$orderby=receivedDateTime desc"
         f"&$filter=startsWith(subject,'{urllib.parse.quote(prefix_escaped)}')"
     )
-    resp = requests.get(url, headers=_graph_headers(token), timeout=30)
+    resp = requests.get(filter_url, headers=headers, timeout=30)
 
-    # $filter may be unsupported on shared mailboxes with basic licences — fall back gracefully
-    if resp.status_code == 400:
-        st.warning(
-            "⚠️ Server-side subject filter not supported on this mailbox — "
-            "falling back to local filter with larger page."
-        )
-        url_fallback = (
-            f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/mailFolders/Inbox/messages"
-            f"?$top={max_messages}"
-            f"&$select=id,subject,from,receivedDateTime,body,hasAttachments,isRead"
-            f"&$orderby=receivedDateTime desc"
-        )
-        resp = requests.get(url_fallback, headers=_graph_headers(token), timeout=30)
+    if resp.status_code == 200:
+        all_msgs = resp.json().get("value", [])
+        return [m for m in all_msgs if _safe(m.get("subject")).lower().startswith(prefix_lower)]
 
+    # ── Strategy 3: plain page + local filter (last resort) ──────────────────
+    plain_url = (
+        f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/mailFolders/Inbox/messages"
+        f"?$top={max_messages}"
+        f"&$select=id,subject,from,receivedDateTime,body,hasAttachments,isRead"
+        f"&$orderby=receivedDateTime desc"
+    )
+    resp = requests.get(plain_url, headers=headers, timeout=30)
     resp.raise_for_status()
     all_msgs = resp.json().get("value", [])
-
-    # Always apply local filter as a safety net
-    prefix_lower = SUBJECT_PREFIX.lower()
-    return [
-        m for m in all_msgs
-        if _safe(m.get("subject")).lower().startswith(prefix_lower)
-    ]
+    return [m for m in all_msgs if _safe(m.get("subject")).lower().startswith(prefix_lower)]
 
 
 def fetch_message_attachments(token: str, message_id: str) -> list[dict]:
@@ -194,81 +215,180 @@ def move_message_to_folder(token: str, message_id: str, folder_name: str = "Proc
 
 # ── Email body table parser ───────────────────────────────────
 
+HEADER_KEYS = {
+    "s.no": "sno", "sno": "sno", "s no": "sno", "s_no": "sno",
+    "jr_no": "jr_no", "jr no": "jr_no", "jr number": "jr_no", "jr_number": "jr_no",
+    "candidate_name": "candidate_name", "candidate name": "candidate_name", "name": "candidate_name",
+    "resume": "resume", "resume file": "resume", "file": "resume",
+}
+
+_STOP_WORDS = {"hi", "hello", "dear", "regards", "thanks", "thank", "sincerely", "best"}
+
+
+def _find_header_tokens(line: str) -> list[tuple]:
+    """
+    Locate all known header keywords in a line (supports multi-word like 'candidate name').
+    Returns list of (char_start, char_end, canonical_key) sorted by position.
+    """
+    found = []
+    line_lower = line.lower()
+    sorted_keys = sorted(HEADER_KEYS.keys(), key=lambda x: -len(x))
+    used_ranges = []
+    for key in sorted_keys:
+        pattern = re.sub(r"[ _]", r"[ _]", re.escape(key))
+        for m in re.finditer(pattern, line_lower):
+            start, end = m.start(), m.end()
+            if any(s <= start < e or s < end <= e for s, e in used_ranges):
+                continue
+            used_ranges.append((start, end))
+            found.append((start, end, HEADER_KEYS[key]))
+    found.sort(key=lambda x: x[0])
+    return found
+
+
+def _is_footer(line: str) -> bool:
+    first = line.strip().split()[0].lower().rstrip(",") if line.strip() else ""
+    return first in _STOP_WORDS
+
+
+def _make_row(parts: list, col_map: dict) -> dict | None:
+    def get(key):
+        i = col_map.get(key)
+        return parts[i].strip() if i is not None and i < len(parts) and isinstance(parts[i], str) else ""
+    jr_no = get("jr_no")
+    candidate_name = get("candidate_name")
+    if not jr_no and not candidate_name:
+        return None
+    if not re.search(r"\w", get("sno") + jr_no + candidate_name):
+        return None
+    return {
+        "sno": _safe(get("sno")),
+        "jr_no": _safe(jr_no),
+        "candidate_name": _safe(candidate_name),
+        "resume": _safe(get("resume")),
+    }
+
+
+def _extract_rows(lines: list, col_map: dict, col_starts: list = None, splitter: str = None) -> list[dict]:
+    rows = []
+    for line in lines:
+        if not line.strip():
+            continue
+        if _is_footer(line):
+            break
+        if col_starts:
+            parts = [
+                line[col_starts[i]: col_starts[i + 1]].strip() if col_starts[i] <= len(line) else ""
+                for i in range(len(col_starts) - 1)
+            ] + [line[col_starts[-1]:].strip() if col_starts[-1] <= len(line) else ""]
+        else:
+            parts = [p.strip() for p in re.split(splitter, line)]
+            if splitter and "|" in splitter:
+                parts = [p for p in parts if p]
+        row = _make_row(parts, col_map)
+        if row:
+            rows.append(row)
+    return rows
+
+
 def parse_body_table(html_body: str) -> list[dict]:
     """
     Parse the candidate table from the email body.
     Expected columns: s.no, jr_no, candidate_name, resume  (order may vary)
-    Handles both HTML <table> and plain-text tab-separated rows.
+
+    Handles all common formats in priority order:
+      1. HTML <table>
+      2. Tab-separated
+      3. Pipe-separated
+      4. Comma-separated
+      5. Space-aligned plain text (e.g. typed in Outlook)
+
     Returns list of dicts with keys: sno, jr_no, candidate_name, resume
     """
-    # Try to strip HTML tags to get plain text
-    text = re.sub(r"<[^>]+>", "\t", html_body)
-    text = re.sub(r"&nbsp;", " ", text)
-    text = re.sub(r"&amp;", "&", text)
+
+    # ── 1. HTML <table> ───────────────────────────────────────────────────────
+    if re.search(r"<table", html_body, re.IGNORECASE):
+        tr_blocks = re.findall(r"<tr[^>]*>(.*?)</tr>", html_body, re.IGNORECASE | re.DOTALL)
+        table_rows = []
+        for tr in tr_blocks:
+            cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", tr, re.IGNORECASE | re.DOTALL)
+            clean = [re.sub(r"<[^>]+>", " ", c).replace("&nbsp;", " ").replace("&amp;", "&").strip() for c in cells]
+            if any(clean):
+                table_rows.append(clean)
+        if table_rows:
+            for hi, hrow in enumerate(table_rows):
+                tokens = _find_header_tokens(" | ".join(hrow))
+                if len(tokens) >= 2:
+                    cm = {}
+                    for ci, cell in enumerate(hrow):
+                        toks = _find_header_tokens(cell)
+                        if toks:
+                            cm[toks[0][2]] = ci
+                    if len(cm) >= 2:
+                        rows = []
+                        for cells in table_rows[hi + 1:]:
+                            if cells and _is_footer(cells[0]):
+                                break
+                            row = _make_row(cells, cm)
+                            if row:
+                                rows.append(row)
+                        if rows:
+                            return rows
+                    break
+
+    # ── Strip HTML to plain text ──────────────────────────────────────────────
+    text = re.sub(r"<[^>]+>", " ", html_body)
+    for ent, rep in [("&nbsp;", " "), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">")]:
+        text = text.replace(ent, rep)
     text = re.sub(r"&#\d+;", "", text)
     text = re.sub(r"&[a-z]+;", " ", text)
+    lines = [line for line in text.splitlines() if line.strip()]
 
-    rows = []
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-
-    # Find header line
-    header_line_idx = None
-    col_map = {}  # col_name -> index in the split row
-    HEADER_KEYS = {
-        "s.no": "sno", "sno": "sno", "s no": "sno",
-        "jr_no": "jr_no", "jr no": "jr_no", "jr number": "jr_no",
-        "candidate_name": "candidate_name", "candidate name": "candidate_name", "name": "candidate_name",
-        "resume": "resume", "resume file": "resume", "file": "resume",
-    }
-
+    # Find header line using multi-word-aware token finder
+    header_idx, header_tokens, header_line = None, [], ""
     for idx, line in enumerate(lines):
-        parts = [p.strip() for p in re.split(r"\t+|\|", line)]
-        normalized = [p.lower().replace("_", " ") for p in parts]
-        matches = sum(1 for n in normalized if n in HEADER_KEYS)
-        if matches >= 2:
-            header_line_idx = idx
-            col_map = {HEADER_KEYS[n]: i for i, n in enumerate(normalized) if n in HEADER_KEYS}
+        tokens = _find_header_tokens(line)
+        if len(tokens) >= 2:
+            header_idx = idx
+            header_tokens = tokens
+            header_line = line
             break
 
-    if header_line_idx is None or not col_map:
+    if header_idx is None:
         return []
 
-    # Parse data rows
-    for line in lines[header_line_idx + 1:]:
-        parts = [p.strip() for p in re.split(r"\t+|\|", line)]
-        if len(parts) < 2:
-            continue
+    data_lines = lines[header_idx + 1:]
+    col_map = {tok[2]: i for i, tok in enumerate(header_tokens)}
 
-        # Skip separator/empty lines
-        if all(p in ("", "-", "—") for p in parts):
-            continue
+    # ── 2. Tab-separated ──────────────────────────────────────────────────────
+    if "\t" in header_line:
+        return _extract_rows(data_lines, col_map, splitter=r"\t+")
 
-        def get_col(key, fallback=""):
-            idx = col_map.get(key)
-            if idx is not None and idx < len(parts):
-                return parts[idx].strip()
-            return fallback
+    # ── 3. Pipe-separated ─────────────────────────────────────────────────────
+    if "|" in header_line:
+        pipe_parts = [p.strip() for p in header_line.split("|") if p.strip()]
+        cm = {}
+        for i, p in enumerate(pipe_parts):
+            toks = _find_header_tokens(p)
+            if toks:
+                cm[toks[0][2]] = i
+        if len(cm) >= 2:
+            return _extract_rows(data_lines, cm, splitter=r"\|")
 
-        sno = get_col("sno")
-        # Must look like a row number or text
-        if not sno:
-            continue
+    # ── 4. Comma-separated ────────────────────────────────────────────────────
+    if "," in header_line and header_line.count(",") >= 2:
+        comma_parts = [p.strip() for p in header_line.split(",")]
+        cm = {}
+        for i, p in enumerate(comma_parts):
+            toks = _find_header_tokens(p)
+            if toks:
+                cm[toks[0][2]] = i
+        if len(cm) >= 2:
+            return _extract_rows(data_lines, cm, splitter=r",")
 
-        jr_no = get_col("jr_no")
-        candidate_name = get_col("candidate_name")
-        resume_file = get_col("resume")
-
-        if not jr_no and not candidate_name:
-            continue  # skip blank rows
-
-        rows.append({
-            "sno": sno,
-            "jr_no": _safe(jr_no),
-            "candidate_name": _safe(candidate_name),
-            "resume": _safe(resume_file),
-        })
-
-    return rows
+    # ── 5. Space-aligned: use char offsets of header token starts ─────────────
+    col_starts = [tok[0] for tok in header_tokens]
+    return _extract_rows(data_lines, col_map, col_starts=col_starts)
 
 
 def match_attachment(candidate_name: str, attachments: list[dict]) -> dict | None:
