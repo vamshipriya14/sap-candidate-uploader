@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
 
+from scheduler import INBOX_EMAIL
+
 # Import resume_repository lazily to avoid circular imports if any
 # from resume_repository import ... (not needed here yet)
 
@@ -42,7 +44,7 @@ TENANT_ID = _secret("MICROSOFT_TENANT_ID", "AZURE_TENANT_ID")
 CLIENT_ID = _secret("MICROSOFT_CLIENT_ID", "AZURE_CLIENT_ID")
 CLIENT_SECRET = _secret("MICROSOFT_CLIENT_SECRET", "AZURE_CLIENT_SECRET")
 SENDER_EMAIL = _secret("SENDER_EMAIL")   # e.g. HEAD.HR@VOLIBITS.COM
-REPORT_SENDER_EMAIL = "hrvolibot@volibits.com"
+REPORT_SENDER_EMAIL = _secret(INBOX_EMAIL)
 
 
 def _friendly_graph_error(resp) -> str:

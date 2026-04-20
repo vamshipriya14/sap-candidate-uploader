@@ -37,6 +37,7 @@ jobs:
           SAP_PASSWORD:             ${{ secrets.SAP_PASSWORD }}
           EMAIL_CC:                 ${{ secrets.EMAIL_CC }}
           SCHEDULER_SUBMIT_TO_SAP:  'false'
-          SCHEDULER_USER_EMAIL:     'hrvolibot@volibits.com'
+          SCHEDULER_USER_EMAIL:     ${{ secrets.INBOX_EMAIL }}
           SCHEDULER_MAX_MESSAGES:   '25'
+          INBOX_EMAIL:              ${{ secrets.INBOX_EMAIL }}
         run: python scheduler.py

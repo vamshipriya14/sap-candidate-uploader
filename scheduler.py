@@ -47,7 +47,7 @@ log = logging.getLogger("scheduler")
 # ─────────────────────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────────────────────
-INBOX_EMAIL      = "hrvolibot@volibits.com"
+INBOX_EMAIL = st.secrets.get("INBOX_EMAIL", []) or os.environ.get("SCHEDULER_INBOX_EMAIL", "")
 SUBJECT_PREFIX   = "Profiles - BS:"
 SUBMIT_TO_SAP    = os.environ.get("SCHEDULER_SUBMIT_TO_SAP", "true").lower() == "true"
 MAX_MESSAGES     = int(os.environ.get("SCHEDULER_MAX_MESSAGES", "50"))
@@ -56,6 +56,8 @@ SCHEDULER_USER   = {
     "name": "Scheduler Bot",
     "access_token": "",
 }
+EMAIL_CC = st.secrets.get("EMAIL_CC", []) or os.environ.get("SCHEDULER_EMAIL_CC", "").split(",")
+
 
 # ─────────────────────────────────────────────────────────────
 # GRAPH API HELPERS
@@ -770,7 +772,7 @@ def run_pipeline() -> dict:
                 results=results_log,
                 submit_mode=SUBMIT_TO_SAP,
                 attachments=failed_upload_attachments,
-                cc=os.environ.get("EMAIL_CC", "").split(",") if os.environ.get("EMAIL_CC") else [],
+                cc=EMAIL_CC or None,
             )
             if ok:
                 log.info("📧 Report email sent.")

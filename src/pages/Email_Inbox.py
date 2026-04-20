@@ -1,7 +1,7 @@
 """
 Email Inbox Integration — pages/Email_Inbox.py
 
-Connects to hrvolibot@volibits.com mailbox, reads emails with subject
+Connects to mailbox, reads emails with subject
 matching "Profiles - BS: <skill>", extracts candidate rows from the
 email body table, downloads resume attachments, uploads to OneDrive,
 parses them, inserts into Supabase, and triggers SAP upload — all
@@ -42,7 +42,7 @@ from uploader import upload_to_sap
 # ─────────────────────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────────────────────
-INBOX_EMAIL = "hrvolibot@volibits.com"
+INBOX_EMAIL = st.secrets.get("INBOX_EMAIL", [])
 SUBJECT_PREFIX = "Profiles - BS:"          # standard prefix in every email
 EMAIL_CC = st.secrets.get("EMAIL_CC", [])
 
@@ -1013,7 +1013,7 @@ if process_all:
                 results=results_log,
                 submit_mode=submit_mode,
                 attachments=failed_upload_attachments,
-                cc=EMAIL_CC,
+                cc=EMAIL_CC or None,
             )
         if ok:
             st.info(f"📧 Upload report sent to **{user['email']}**")
