@@ -913,10 +913,19 @@ if process_all:
             # ─────────────────────────────
             # 9. UPDATE DB STATUS
             # ─────────────────────────────
+            if not db_record_id:
+                # Last-resort recovery before giving up on the status update
+                recovered = fetch_existing_record(jr_no, row_data["Email"], row_data["Phone"])
+                if not recovered:
+                    recovered = fetch_record_by_file_name(jr_no, file_name)
+                if recovered:
+                    db_record_id = str(recovered.get("id", "")).strip()
+                    st.warning(f"⚠️ db_record_id was empty — recovered as {db_record_id}")
+
             if db_record_id:
                 record_id_clean = db_record_id.strip()
                 patch_payload = {
-                    "upload_to_sap": sap_status,          # "Done" | "Failed" | "Skipped"
+                    "upload_to_sap": sap_status,  # "Done" | "Failed" | "Skipped"
                     "client_recruiter": client_recruiter,
                     "client_recruiter_email": client_recruiter_email,
                 }
@@ -933,14 +942,26 @@ if process_all:
                     if resp.status_code not in (200, 204):
                         st.error(f"❌ DB status update failed ({resp.status_code}): {resp.text}")
                     else:
-                        # Confirm the row was actually matched (204 = no body, 200 = body)
                         if resp.status_code == 200:
                             updated_rows = resp.json()
                             if not updated_rows:
                                 st.warning(
-                                    f"⚠️ PATCH returned 200 but matched 0 rows — "
-                                    f"id={record_id_clean} not found in {SUPABASE_TABLE}"
+                                    f"⚠️ PATCH matched 0 rows — id={record_id_clean} "
+                                    f"not found in {SUPABASE_TABLE}. "
+                                    f"Attempting fallback by jr_number+file_name…"
                                 )
+                                # Fallback: patch by jr_number + file_name
+                                fallback_resp = requests.patch(
+                                    f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
+                                    f"?jr_number=eq.{jr_no}&file_name=eq.{file_name}",
+                                    headers={**_headers(), "Prefer": "return=representation"},
+                                    json=patch_payload,
+                                    timeout=15,
+                                )
+                                if fallback_resp.status_code == 200 and fallback_resp.json():
+                                    st.success(f"✅ DB updated via fallback → upload_to_sap = {sap_status}")
+                                else:
+                                    st.error(f"❌ Fallback PATCH also matched 0 rows for {cand_label}")
                             else:
                                 st.success(f"✅ DB updated → upload_to_sap = {sap_status}")
                         else:
