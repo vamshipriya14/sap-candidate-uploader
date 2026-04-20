@@ -14,30 +14,33 @@ load_dotenv()
 
 
 def _secret(name: str, *fallback_names: str) -> str:
-    secrets_obj = None
+    # Try Streamlit secrets first
     try:
-        secrets_obj = st.secrets
-    except StreamlitSecretNotFoundError:
-        secrets_obj = None
-    except Exception:
-        secrets_obj = None
+        import streamlit as st
+        from streamlit.errors import StreamlitSecretNotFoundError
+        try:
+            secrets_obj = st.secrets
+            for key in (name, *fallback_names):
+                try:
+                    value = secrets_obj.get(key)
+                    if value:
+                        return str(value)
+                except Exception:
+                    pass
+        except StreamlitSecretNotFoundError:
+            pass
+        except Exception:
+            pass
+    except ImportError:
+        pass
 
+    # Fall back to environment variables (GitHub Actions)
     for key in (name, *fallback_names):
-        if secrets_obj is not None:
-            try:
-                value = secrets_obj.get(key)
-                if value:
-                    return str(value)
-            except StreamlitSecretNotFoundError:
-                pass
-            except Exception:
-                pass
-    for key in (name, *fallback_names):
-        value = os.getenv(key)
+        value = os.environ.get(key)
         if value:
             return value
-    return ""
 
+    return ""
 
 TENANT_ID = _secret("MICROSOFT_TENANT_ID", "AZURE_TENANT_ID")
 CLIENT_ID = _secret("MICROSOFT_CLIENT_ID", "AZURE_CLIENT_ID")

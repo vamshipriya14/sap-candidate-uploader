@@ -11,23 +11,34 @@ load_dotenv()
 # ─────────────────────────────────────────────
 # 🔐 SECRETS
 # ─────────────────────────────────────────────
-def _secret(name: str, *fallback_names: str, default: str = "") -> str:
+def _secret(name: str, *fallback_names: str) -> str:
+    # Try Streamlit secrets first
     try:
-        secrets_obj = st.secrets
-    except Exception:
-        secrets_obj = None
+        import streamlit as st
+        from streamlit.errors import StreamlitSecretNotFoundError
+        try:
+            secrets_obj = st.secrets
+            for key in (name, *fallback_names):
+                try:
+                    value = secrets_obj.get(key)
+                    if value:
+                        return str(value)
+                except Exception:
+                    pass
+        except StreamlitSecretNotFoundError:
+            pass
+        except Exception:
+            pass
+    except ImportError:
+        pass
 
+    # Fall back to environment variables (GitHub Actions)
     for key in (name, *fallback_names):
-        if secrets_obj:
-            try:
-                v = secrets_obj.get(key)
-                if v:
-                    return str(v)
-            except Exception:
-                pass
+        value = os.environ.get(key)
+        if value:
+            return value
 
-    return default
-
+    return ""
 
 SUPABASE_URL = _secret("SUPABASE_URL")
 SUPABASE_KEY = _secret("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_KEY")
