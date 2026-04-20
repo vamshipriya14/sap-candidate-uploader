@@ -208,7 +208,12 @@ HEADER_KEYS = {
     "jr_no": "jr_no", "jr no": "jr_no", "jr number": "jr_no", "jr_number": "jr_no",
     "candidate_name": "candidate_name", "candidate name": "candidate_name", "name": "candidate_name",
     "resume": "resume", "resume file": "resume", "file": "resume",
+    # ── NEW ──────────────────────────────────────────────────────────────
+    "email": "email", "email id": "email", "email address": "email",
+    "phone": "phone", "phone number": "phone", "mobile": "phone",
+    "mobile number": "phone", "contact": "phone", "contact number": "phone",
 }
+
 _STOP_WORDS = {"hi", "hello", "dear", "regards", "thanks", "thank", "sincerely", "best"}
 
 def _find_header_tokens(line: str) -> list:
@@ -234,18 +239,20 @@ def _make_row(parts: list, col_map: dict):
     def get(key):
         i = col_map.get(key)
         return parts[i].strip() if i is not None and i < len(parts) and isinstance(parts[i], str) else ""
-    jr_no, candidate_name = get("jr_no"), get("candidate_name")
+    jr_no          = get("jr_no")
+    candidate_name = get("candidate_name")
     if not jr_no and not candidate_name:
         return None
     if not re.search(r"\w", get("sno") + jr_no + candidate_name):
         return None
     return {
-        "sno": _safe(get("sno")),
-        "jr_no": _safe(jr_no),
+        "sno":            _safe(get("sno")),
+        "jr_no":          _safe(jr_no),
         "candidate_name": _safe(candidate_name),
-        "resume": _safe(get("resume")),
+        "resume":         _safe(get("resume")),
+        "email":          _safe(get("email")),    # ← NEW
+        "phone":          _safe(get("phone")),    # ← NEW
     }
-
 def _extract_rows(lines, col_map, col_starts=None, splitter=None) -> list:
     rows = []
     for line in lines:
@@ -509,6 +516,10 @@ def run_pipeline() -> dict:
             client_recruiter       = jr_meta.get("client_recruiter") or jr_meta.get("recruiter") or ""
             client_recruiter_email = jr_meta.get("client_recruiter_email") or jr_meta.get("recruiter_email") or ""
 
+            # ── Fallback: use table values if parser returned nothing ──
+            email_parsed = parsed.get("email", "") or cand.get("email", "")  # ← fallback
+            phone_parsed = parsed.get("phone", "") or cand.get("phone", "")  # ← fallback
+
             row_data = {
                 "JR Number":              jr_no,
                 "Date":                   today_text,
@@ -516,8 +527,8 @@ def run_pipeline() -> dict:
                 "File Name":              file_name,
                 "First Name":             first_name,
                 "Last Name":              last_name,
-                "Email":                  parsed.get("email", ""),
-                "Phone":                  parsed.get("phone", ""),
+                "Email":                  email_parsed,
+                "Phone":                  phone_parsed,
                 "upload_to_sap":          "Pending",
                 "client_recruiter":       client_recruiter,
                 "client_recruiter_email": client_recruiter_email,
