@@ -618,7 +618,7 @@ if process_all:
         status_box.success("SAP connected ✅")
     except Exception as sap_exc:
         failed_upload_attachments.append({
-            "file": file_name,
+            "file": file.name,
             "error": sap_error
         })
         st.error(f"SAP connection failed: {sap_exc}")
