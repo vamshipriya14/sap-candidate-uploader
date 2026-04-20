@@ -88,24 +88,44 @@ def _graph_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
 
-def fetch_inbox_messages(token: str, max_messages: int = 50) -> list[dict]:
+def fetch_inbox_messages(token: str, max_messages: int = 200) -> list[dict]:
     """
-    Return unread messages from hrvolibot inbox whose subject starts with
-    'Profiles - BS:'.  Uses $filter + $search isn't available on shared
-    mailboxes with basic licences, so we page through recent messages and
-    filter locally.
+    Return messages from hrvolibot inbox whose subject starts with
+    'Profiles - BS:'. Tries server-side $filter first for reliability,
+    then falls back to a larger local-filter page if $filter is unsupported.
     """
+    import urllib.parse
+
+    # OData requires single-quotes inside string literals to be escaped as ''
+    prefix_escaped = SUBJECT_PREFIX.replace("'", "''")
+
     url = (
         f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/mailFolders/Inbox/messages"
         f"?$top={max_messages}"
         f"&$select=id,subject,from,receivedDateTime,body,hasAttachments,isRead"
         f"&$orderby=receivedDateTime desc"
+        f"&$filter=startsWith(subject,'{urllib.parse.quote(prefix_escaped)}')"
     )
     resp = requests.get(url, headers=_graph_headers(token), timeout=30)
+
+    # $filter may be unsupported on shared mailboxes with basic licences — fall back gracefully
+    if resp.status_code == 400:
+        st.warning(
+            "⚠️ Server-side subject filter not supported on this mailbox — "
+            "falling back to local filter with larger page."
+        )
+        url_fallback = (
+            f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/mailFolders/Inbox/messages"
+            f"?$top={max_messages}"
+            f"&$select=id,subject,from,receivedDateTime,body,hasAttachments,isRead"
+            f"&$orderby=receivedDateTime desc"
+        )
+        resp = requests.get(url_fallback, headers=_graph_headers(token), timeout=30)
+
     resp.raise_for_status()
     all_msgs = resp.json().get("value", [])
 
-    # Filter locally to subject prefix (case-insensitive)
+    # Always apply local filter as a safety net
     prefix_lower = SUBJECT_PREFIX.lower()
     return [
         m for m in all_msgs
