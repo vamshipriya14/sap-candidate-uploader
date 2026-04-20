@@ -1,3 +1,4 @@
+import os
 import re
 import hashlib
 from datetime import datetime, timezone, timedelta  # 🔴 Fix #2: added timedelta
@@ -11,35 +12,32 @@ load_dotenv()
 # ─────────────────────────────────────────────
 # 🔐 SECRETS
 # ─────────────────────────────────────────────
-def _secret(name: str, *fallback_names: str) -> str:
-    # Try Streamlit secrets first
-    try:
-        import streamlit as st
-        from streamlit.errors import StreamlitSecretNotFoundError
-        try:
-            secrets_obj = st.secrets
-            for key in (name, *fallback_names):
-                try:
-                    value = secrets_obj.get(key)
-                    if value:
-                        return str(value)
-                except Exception:
-                    pass
-        except StreamlitSecretNotFoundError:
-            pass
-        except Exception:
-            pass
-    except ImportError:
-        pass
+import os
 
-    # Fall back to environment variables (GitHub Actions)
+def _secret(name: str, *fallback_names: str) -> str:
+    # 1. Try environment variables first (GitHub Actions)
     for key in (name, *fallback_names):
         value = os.environ.get(key)
         if value:
             return value
 
-    return ""
+    # 2. Try Streamlit secrets (only in Streamlit context)
+    try:
+        import streamlit as st
+        from streamlit.errors import StreamlitSecretNotFoundError
+        for key in (name, *fallback_names):
+            try:
+                value = st.secrets.get(key)
+                if value:
+                    return str(value)
+            except StreamlitSecretNotFoundError:
+                pass
+            except Exception:
+                pass
+    except Exception:
+        pass
 
+    return ""
 SUPABASE_URL = _secret("SUPABASE_URL")
 SUPABASE_KEY = _secret("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_KEY")
 SUPABASE_TABLE = _secret("SUPABASE_RESUME_TABLE", default="candidates_submitted")

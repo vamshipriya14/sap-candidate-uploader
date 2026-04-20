@@ -11,37 +11,32 @@ from streamlit.errors import StreamlitSecretNotFoundError
 # from resume_repository import ... (not needed here yet)
 
 load_dotenv()
-
+import os
 
 def _secret(name: str, *fallback_names: str) -> str:
-    # Try Streamlit secrets first
-    try:
-        import streamlit as st
-        from streamlit.errors import StreamlitSecretNotFoundError
-        try:
-            secrets_obj = st.secrets
-            for key in (name, *fallback_names):
-                try:
-                    value = secrets_obj.get(key)
-                    if value:
-                        return str(value)
-                except Exception:
-                    pass
-        except StreamlitSecretNotFoundError:
-            pass
-        except Exception:
-            pass
-    except ImportError:
-        pass
-
-    # Fall back to environment variables (GitHub Actions)
+    # 1. Try environment variables first (GitHub Actions)
     for key in (name, *fallback_names):
         value = os.environ.get(key)
         if value:
             return value
 
-    return ""
+    # 2. Try Streamlit secrets (only in Streamlit context)
+    try:
+        import streamlit as st
+        from streamlit.errors import StreamlitSecretNotFoundError
+        for key in (name, *fallback_names):
+            try:
+                value = st.secrets.get(key)
+                if value:
+                    return str(value)
+            except StreamlitSecretNotFoundError:
+                pass
+            except Exception:
+                pass
+    except Exception:
+        pass
 
+    return ""
 TENANT_ID = _secret("MICROSOFT_TENANT_ID", "AZURE_TENANT_ID")
 CLIENT_ID = _secret("MICROSOFT_CLIENT_ID", "AZURE_CLIENT_ID")
 CLIENT_SECRET = _secret("MICROSOFT_CLIENT_SECRET", "AZURE_CLIENT_SECRET")
