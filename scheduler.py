@@ -17,9 +17,9 @@ import requests
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-from notifier import _get_app_token, send_upload_notification
-from resume_parser import parse_resume
-from resume_repository import (
+from src.notifier import _get_app_token, send_upload_notification
+from src.resume_parser import parse_resume
+from src.resume_repository import (
     _headers,
     fetch_active_jr_master,
     fetch_existing_record,
@@ -31,8 +31,8 @@ from resume_repository import (
     SUPABASE_URL,
     SUPABASE_TABLE,
 )
-from sap_bot_headless import SAPBot
-from uploader import upload_to_sap
+from src.sap_bot_headless import SAPBot
+from src.uploader import upload_to_sap
 
 # ─────────────────────────────────────────────────────────────
 # LOGGING
