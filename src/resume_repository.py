@@ -219,9 +219,60 @@ def insert_resume_record(row: dict, user: dict, resume_path: str | None = None) 
     if resp.status_code not in (200, 201):
         raise Exception(resp.text)
 
-    return resp.json()[0]
+    # 🔥 Handle empty response safely
+    try:
+        data = resp.json()
+        if isinstance(data, list) and data:
+            return data[0]
+        return {}  # duplicate case (no body)
+    except Exception:
+        return {}  # empty response → treat as success
 
 
+def fetch_existing_record_id(jr, email, phone):
+    url = (
+        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
+        f"?jr_number=eq.{jr}&email=eq.{email}&phone=eq.{phone}&select=id&limit=1"
+    )
+    resp = requests.get(url, headers=_headers(), timeout=15)
+
+    if resp.status_code == 200:
+        data = resp.json()
+        if data:
+            return str(data[0].get("id", "")).strip()
+
+    return ""
+
+def fetch_existing_record(jr, email, phone):
+    url = (
+        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
+        f"?jr_number=eq.{jr}&email=eq.{email}&phone=eq.{phone}"
+        f"&select=id,upload_to_sap&limit=1"
+    )
+
+    resp = requests.get(url, headers=_headers(), timeout=15)
+
+    if resp.status_code == 200:
+        data = resp.json()
+        if data:
+            return data[0]
+
+    return {}
+
+def fetch_retry_sap_records(limit=20):
+    url = (
+        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
+        f"?upload_to_sap=neq.Done"
+        f"&select=*"
+        f"&limit={limit}"
+    )
+
+    resp = requests.get(url, headers=_headers(), timeout=30)
+
+    if resp.status_code != 200:
+        raise Exception(resp.text)
+
+    return resp.json()
 # ─────────────────────────────────────────────
 # ✏️ DB UPDATE
 # ─────────────────────────────────────────────

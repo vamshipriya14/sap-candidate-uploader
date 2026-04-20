@@ -27,11 +27,13 @@ from resume_parser import parse_resume
 from resume_repository import (
     _headers,
     fetch_active_jr_master,
+    fetch_existing_record_id,
     insert_resume_record,
     jr_folder_name,
     upload_resume,
     SUPABASE_URL,
     SUPABASE_TABLE,
+
 )
 from sap_bot_headless import SAPBot
 from uploader import upload_to_sap
@@ -769,10 +771,28 @@ if process_all:
                 db_record = insert_resume_record(
                     row_data,
                     user,
-                    resume_path=resume_path  # ✅ changed here
+                    resume_path=resume_path
                 )
+
                 db_record_id = str(db_record.get("id", "")).strip()
-                st.write(f"  💾 Saved to DB (id: `{db_record_id}`)")
+                existing_record = {}
+
+                # 🔥 If duplicate (no ID returned)
+                if not db_record_id:
+                    existing_record = fetch_existing_record(
+                        jr_no,
+                        row_data["Email"],
+                        row_data["Phone"]
+                    )
+
+                    db_record_id = str(existing_record.get("id", "")).strip()
+
+                    st.write(f"  🔁 Duplicate found → using existing record `{db_record_id}`")
+                else:
+                    existing_record = db_record
+
+                st.write(f"  💾 DB ready (id: `{db_record_id}`)")
+
             except Exception as db_exc:
                 st.error(f"  ❌ DB insert failed: {db_exc}")
                 overall_log.append({
@@ -781,15 +801,33 @@ if process_all:
                 continue
 
             # 4. Upload to SAP
-            if not bot:
-                st.warning("  ⚠️ SAP bot not connected — skipping SAP upload.")
+            # 🔥 Decide if SAP upload is needed
+            upload_needed = True
+
+            existing_status = str(existing_record.get("upload_to_sap", "")).strip().lower()
+
+            if existing_status == "done":
+                upload_needed = False
+                st.info(f"  ⏭️ Already uploaded to SAP — skipping: **{cand_label}**")
+
+            if not upload_needed:
                 overall_log.append({
-                    "Email": subject, "Candidate": cand_label, "Status": "Skipped (SAP unavailable)", "JR": jr_no
+                    "Email": subject,
+                    "Candidate": cand_label,
+                    "Status": "Already in SAP",
+                    "JR": jr_no,
                 })
                 continue
 
-            sap_status = "Failed"
-            sap_error = ""
+            if not bot:
+                st.warning("  ⚠️ SAP bot not connected — skipping SAP upload.")
+                overall_log.append({
+                    "Email": subject,
+                    "Candidate": cand_label,
+                    "Status": "Skipped (SAP unavailable)",
+                    "JR": jr_no,
+                })
+                continue
 
 
             def is_session_dead(err):
