@@ -617,6 +617,10 @@ if process_all:
         bot = start_sap_bot()
         status_box.success("SAP connected ✅")
     except Exception as sap_exc:
+        failed_upload_attachments.append({
+            "file": file_name,
+            "error": sap_error
+        })
         st.error(f"SAP connection failed: {sap_exc}")
         bot = None
 
@@ -676,6 +680,7 @@ if process_all:
             existing_status = ""
             resume_path = ""
             db_record_id = ""
+
             jr_no = cand["jr_no"]
             candidate_name = cand["candidate_name"]
             specified_resume = cand["resume"]
@@ -683,87 +688,56 @@ if process_all:
             cand_label = candidate_name or specified_resume or f"Row {cand['sno']}"
             st.markdown(f"**→ {cand_label}** (JR: `{jr_no}`)")
 
-            # Resolve attachment
+            # ─────────────────────────────
+            # 1. Resolve attachment
+            # ─────────────────────────────
             att = None
             if specified_resume:
                 att = att_by_name.get(specified_resume.lower())
                 if not att:
-                    # Try partial filename match
                     for att_name, a in att_by_name.items():
                         if specified_resume.lower() in att_name or att_name in specified_resume.lower():
                             att = a
                             break
+
             if not att and candidate_name:
                 att = match_attachment(candidate_name, attachments)
 
             if not att:
-                msg_str = f"Resume not found for **{cand_label}** (looked for `{specified_resume or candidate_name}`)"
-                st.error(f"❌ {msg_str}")
-                results_log.append({
-                    "File": cand_label,
-                    "Status": "Resume Not Found"
-                })
-                overall_log.append({
-                    "Email": subject, "Candidate": cand_label, "Status": "Resume Not Found", "JR": jr_no
-                })
+                st.error(f"❌ Resume not found for {cand_label}")
+                results_log.append({"File": cand_label, "Status": "Resume Not Found"})
                 continue
 
             file_name = att["name"]
             file_bytes = att["bytes"]
 
-            # 1. Upload to Supabase   →  <JR>/<file>
-            resume_path = ""
-            existing_status = ""
-            existing_record = fetch_existing_record(
-                jr_no,
-                row_data["Email"],
-                row_data["Phone"]
-            )
-
-            if existing_record:
-                db_record_id = str(existing_record.get("id", "")).strip()
-                existing_status = str(existing_record.get("upload_to_sap", "")).strip().lower()
-                resume_path = existing_record.get("resume_path", "")
-
-                st.info(f"  🔁 Existing record found → `{db_record_id}`")
-            if existing_record:
-                st.info("  ⏭ Skipping upload — already exists in DB")
-            else:
-                try:
-                    jr_folder = jr_no if jr_no else "pending_jr"
-                    resume_path = upload_resume(file_name, file_bytes, jr_folder)
-
-                    st.write(
-                        f"  ☁️ Uploaded to supabase resumes bucket: "
-                        f"`{jr_folder_name(jr_no)}/{file_name}`"
-                    )
-
-                except Exception as od_exc:
-                    if "409" in str(od_exc):
-                        st.info("  ℹ️ Resume already exists in storage — continuing")
-                        resume_path = f"{jr_folder_name(jr_no)}/{file_name}"
-                    else:
-                        st.warning(f"  ⚠️ DB resume upload failed: {od_exc}")
-                        resume_path = ""
-
-
+            # ─────────────────────────────
             # 2. Parse resume
+            # ─────────────────────────────
             parsed = {}
             try:
                 file_obj = io.BytesIO(file_bytes)
                 file_obj.name = file_name
                 parsed = parse_resume(file_obj)
-            except Exception as parse_exc:
-                st.warning(f"  ⚠️ Resume parse failed: {parse_exc}")
+            except Exception as e:
+                st.warning(f"Resume parse failed: {e}")
 
-            # Build row dict
+            # ─────────────────────────────
+            # 3. Build row_data
+            # ─────────────────────────────
             jr_meta = _get_jr_meta(jr_no)
             skill = jr_meta.get("skill_name", "") or skill_from_subject
 
-            # Split candidate_name from email table into first/last
             name_parts = candidate_name.split(" ", 1) if candidate_name else []
             first_name = parsed.get("first_name") or (name_parts[0] if name_parts else "")
             last_name = parsed.get("last_name") or (name_parts[1] if len(name_parts) > 1 else "")
+
+            # Get recruiter info from JR master
+            client_recruiter = jr_meta.get("client_recruiter", "")
+            client_recruiter_email = (
+                    jr_meta.get("client_recruiter_email", "")
+                    or jr_meta.get("recruiter_email", "")
+            )
 
             row_data = {
                 "JR Number": jr_no,
@@ -774,27 +748,20 @@ if process_all:
                 "Last Name": last_name,
                 "Email": parsed.get("email", ""),
                 "Phone": parsed.get("phone", ""),
-                "Current Company": parsed.get("current_company", ""),
-                "Total Experience": parsed.get("total_experience", ""),
-                "Relevant Experience": parsed.get("relevant_experience", ""),
-                "Current CTC": parsed.get("current_ctc", ""),
-                "Expected CTC": parsed.get("expected_ctc", ""),
-                "Notice Period": parsed.get("notice_period", ""),
-                "Current Location": parsed.get("current_location", ""),
-                "Preferred Location": parsed.get("preferred_location", ""),
+
+                "client_recruiter": client_recruiter,
+                "client_recruiter_email": client_recruiter_email,
+
                 "Actual Status": "Not Called",
                 "Call Iteration": "First Call",
-                "comments/Availability": "",
-                "Error": "",
                 "Upload to SAP": "Pending",
-                "client_recruiter": jr_meta.get("client_recruiter", ""),
-                "client_recruiter_email": jr_meta.get("recruiter_email", ""),
-                "client_email_sent": "Pending",
-                "recruiter": user.get("name", ""),
-                "recruiter_email": user.get("email", ""),
-                # Store the source email ID to detect re-processing
                 "source_email_id": msg_id,
             }
+            # ─────────────────────────────
+            # 4. CHECK DUPLICATE (ONLY ONCE)
+            # ─────────────────────────────
+            if not row_data["Email"] and not row_data["Phone"]:
+                st.warning("⚠️ Missing email & phone — duplicate detection weak")
             existing_record = fetch_existing_record(
                 jr_no,
                 row_data["Email"],
@@ -802,224 +769,137 @@ if process_all:
             )
 
             if existing_record:
-                db_record_id = str(existing_record.get("id", "")).strip()
+                # 🔥 Backfill recruiter fields if missing in DB
+                if not existing_record.get("client_recruiter"):
+                    row_data["client_recruiter"] = jr_meta.get("client_recruiter", "")
+
+                if not existing_record.get("client_recruiter_email"):
+                    row_data["client_recruiter_email"] = (
+                            jr_meta.get("client_recruiter_email", "")
+                            or jr_meta.get("recruiter_email", "")
+                    )
+                db_record_id = str(existing_record.get("id") or "").strip()
+
+                if not db_record_id:
+                    st.error("❌ Existing record missing ID — skipping")
+                    continue
                 existing_status = str(existing_record.get("upload_to_sap", "")).strip().lower()
                 resume_path = existing_record.get("resume_path", "")
 
-                st.info(f"  🔁 Existing record found → `{db_record_id}`")
+                st.info(f"🔁 Existing record → {db_record_id}")
 
-            # 3. Insert into Supabase DB
-            if not resume_path and not existing_record:
-                st.warning("  ⚠️ Resume path missing — storing empty path")
-            try:
-                if not existing_record:
+            # ─────────────────────────────
+            # 5. Upload Resume (ONLY IF NEW)
+            # ─────────────────────────────
+            if not existing_record:
+                try:
+                    jr_folder = jr_no if jr_no else "pending_jr"
+                    resume_path = upload_resume(file_name, file_bytes, jr_folder)
+
+                except Exception as e:
+                    if "409" in str(e):
+                        resume_path = resume_path or f"{jr_folder_name(jr_no)}/{file_name}"
+                    else:
+                        st.warning(f"Upload failed: {e}")
+                        resume_path = ""
+
+            # ─────────────────────────────
+            # 6. Insert DB (ONLY IF NEW)
+            # ─────────────────────────────
+            if not existing_record:
+                try:
                     db_record = insert_resume_record(
                         row_data,
                         user,
                         resume_path=resume_path
                     )
                     db_record_id = str(db_record.get("id", "")).strip()
-                    existing_status = ""
-
-                st.write(f"  💾 DB ready (id: `{db_record_id}`)")
-
-            except Exception as db_exc:
-                err_str = str(db_exc)
-
-                if "duplicate key value" in err_str.lower() or "23505" in err_str:
-                    st.warning("  🔁 Duplicate detected — using existing record")
-
-                    if not existing_record:
-                        st.error("  ❌ Duplicate detected but no existing record found")
+                except Exception as e:
+                    if "23505" in str(e):
+                        st.warning("Duplicate detected after insert")
+                    else:
+                        st.error(f"DB insert failed: {e}")
                         continue
-                else:
-                    st.error(f"  ❌ DB insert failed: {db_exc}")
 
-                    overall_log.append({
-                        "Email": subject,
-                        "Candidate": cand_label,
-                        "Status": f"DB Error: {db_exc}",
-                        "JR": jr_no
-                    })
+            st.write(f"💾 DB Ready → {db_record_id}")
 
-                    results_log.append({
-                        "File": file_name,
-                        "Status": f"DB Error: {err_str[:100]}"
-                    })
-
-                    continue
-
-
-            # 4. Upload to SAP
-            # 🔥 Decide if SAP upload is needed
-            upload_needed = True
-
-            # 🔥 Treat ONLY "done" as completed
-            if existing_status == "done":
-                upload_needed = False
-            else:
-                upload_needed = True
+            # ─────────────────────────────
+            # 7. SAP Upload Decision
+            # ─────────────────────────────
+            upload_needed = existing_status not in ("done",)
 
             if not upload_needed:
-                overall_log.append({
-                    "Email": subject,
-                    "Candidate": cand_label,
-                    "Status": "Already in SAP",
-                    "JR": jr_no,
-                })
-                results_log.append({
-                    "File": file_name,
-                    "Status": "Already in SAP"
-                })
+                st.info("⏭ Already uploaded to SAP")
+                results_log.append({"File": file_name, "Status": "Already in SAP"})
                 continue
 
             if not bot:
-                st.warning("  ⚠️ SAP bot not connected — skipping SAP upload.")
-                overall_log.append({
-                    "Email": subject,
-                    "Candidate": cand_label,
-                    "Status": "Skipped (SAP unavailable)",
-                    "JR": jr_no,
-                })
-                results_log.append({
-                    "File": file_name,
-                    "Status": "SAP Skipped (No Bot)"
-                })
+                st.warning("SAP bot not available")
                 continue
 
-            # 🔥 INIT (REQUIRED)
+            # ─────────────────────────────
+            # 8. SAP Upload + Retry
+            # ─────────────────────────────
             sap_status = "Failed"
             sap_error = ""
-            def is_session_dead(err):
-                msg = str(err).lower()
-                return "invalid session id" in msg or "disconnected" in msg or "not connected to devtools" in msg
 
-
-            for attempt in range(2):  # retry once
+            for attempt in range(2):
                 try:
-                    # 🧠 Check if driver is alive before using
-                    try:
-                        bot.driver.current_url
-                    except:
-                        raise Exception("SAP session lost")
-
                     file_obj = io.BytesIO(file_bytes)
                     file_obj.name = file_name
 
-                    upload_to_sap(
-                        bot,
-                        {
-                            "jr_number": jr_no,
-                            "first_name": first_name,
-                            "last_name": last_name,
-                            "submit": submit_mode,
-                            "email": row_data["Email"],
-                            "phone": row_data["Phone"],
-                            "country_code": "+91",
-                            "country": "India",
-                            "resume_file": file_obj,
-                        },
-                    )
+                    upload_to_sap(bot, {
+                        "jr_number": jr_no,
+                        "first_name": first_name,
+                        "last_name": last_name,
+                        "email": row_data["Email"],
+                        "phone": row_data["Phone"],
+                        "resume_file": file_obj,
+                        "submit": submit_mode,
+                    })
 
                     sap_status = "Done"
-                    st.success(f"  ✅ SAP upload {'submitted' if submit_mode else 'dry-run'}: **{cand_label}**")
-                    results_log.append({"File": file_name, "Status": "Success"})
+                    st.success(f"✅ SAP uploaded: {cand_label}")
                     break
 
-                except Exception as sap_exc:
-                    sap_error = str(sap_exc)
+                except Exception as e:
+                    sap_error = str(e)
 
-                    # 🔥 If session crashed → restart
-                    if is_session_dead(sap_exc) and attempt == 0:
-                        st.warning("⚠️ SAP session lost. Restarting browser...")
-
+                    if attempt == 0:
                         try:
                             bot.close()
-                        except:
-                            pass
-
-                        try:
                             bot = start_sap_bot()
-                            st.info("🔁 SAP session restarted. Retrying...")
                             continue
-                        except Exception as restart_exc:
-                            sap_error = f"Restart failed: {restart_exc}"
+                        except:
                             break
-                    else:
-                        break
 
-            if sap_status != "Done":
-                st.error(f"  ❌ SAP upload failed: {sap_error}")
-
-                results_log.append({
-                    "File": file_name,
-                    "Status": sap_error[:120] if sap_error else "SAP upload failed",
-                })
-                st.error(f"  ❌ SAP upload failed: {sap_error}")
-                # Capture a screenshot for the failure notification
-                if bot:
-                    try:
-                        screenshot_name = (
-                            f"{re.sub(r'[<>:\"/\\\\|?*]+', '_', jr_no or 'unknown_jr')}_"
-                            f"{re.sub(r'[<>:\"/\\\\|?*]+', '_', cand_label or 'candidate')}_failed_upload"
-                        )
-                        screenshot_path = bot._screenshot(screenshot_name)
-                        failed_upload_attachments.append({
-                            "name": f"{screenshot_name}.png",
-                            "content": screenshot_path.read_bytes(),
-                        })
-                    except Exception:
-                        pass
-                results_log.append({
-                    "File": file_name,
-                    "Status": sap_error[:120] if sap_error else "SAP upload failed",
-                })
-            # 5. Update DB with SAP status
+            # ─────────────────────────────
+            # 9. UPDATE DB STATUS
+            # ─────────────────────────────
             if db_record_id:
                 try:
-                    update_fields = {
-                        "upload_to_sap": sap_status,
-                        "error_message": sap_error[:500] if sap_error else "",
-                    }
-
-                    resp = requests.patch(
+                    requests.patch(
                         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{db_record_id}",
-                        headers=_headers(),  # ✅ FIXED
-                        json=update_fields,
-                        timeout=15,
+                        headers=_headers(),
+                        json={
+                            "upload_to_sap": sap_status,
+                            "error_message": sap_error[:500]
+                        },
+                        timeout=15
                     )
+                except Exception as e:
+                    st.warning(f"DB update failed: {e}")
 
-                    if resp.status_code not in (200, 204):
-                        raise Exception(f"DB update failed: {resp.text}")
-                    else:
-                        st.write(f"  📝 DB updated → upload_to_sap = {sap_status}")
-
-                except Exception as upd_exc:
-                    st.warning(f"  ⚠️ DB status update failed: {upd_exc}")
-
+            results_log.append({
+                "File": file_name,
+                "Status": "Success" if sap_status == "Done" else sap_error[:100]
+            })
             overall_log.append({
                 "Email": subject,
                 "Candidate": cand_label,
-                "JR": jr_no,
-                "Status": f"SAP {sap_status}" if sap_status == "Done" else f"SAP Failed: {sap_error[:60]}",
+                "Status": sap_status,
+                "JR": jr_no
             })
-
-        # Mark email as read + move to processed folder
-        try:
-            mark_message_read(token, msg_id)
-            move_message_to_folder(token, msg_id)
-            st.write("  📁 Email marked as read and moved to **Processed Profiles** folder.")
-        except Exception as mv_exc:
-            st.warning(f"  ⚠️ Could not mark/move email: {mv_exc}")
-
-        progress_bar.progress((msg_idx + 1) / len(messages))
-
-    # Close SAP bot
-    if bot:
-        try:
-            bot.close()
-        except Exception:
-            pass
 
     st.divider()
     st.subheader("📊 Processing Summary")
