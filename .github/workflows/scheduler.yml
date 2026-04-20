@@ -23,10 +23,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Install Chromium
+      - name: Install Chrome and ChromeDriver
         run: |
-          sudo apt-get update
-          sudo apt-get install -y chromium-browser chromium-chromedriver
+          pip install webdriver-manager
 
       - name: Run scheduler
         env:

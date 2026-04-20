@@ -44,14 +44,24 @@ def start(self):
 
 def _find_chrome_binaries():
     chrome_bin = (
-        shutil.which("chromium")
-        or shutil.which("chromium-browser")
+        shutil.which("google-chrome-stable")
         or shutil.which("google-chrome")
-        or shutil.which("google-chrome-stable")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
     )
     chromedriver_bin = shutil.which("chromedriver")
-    return chrome_bin, chromedriver_bin
 
+    # GitHub Actions fallback — use webdriver-manager
+    if not chrome_bin or not chromedriver_bin:
+        try:
+            from webdriver_manager.chrome import ChromeDriverManager
+            from webdriver_manager.core.os_manager import ChromeType
+            chromedriver_bin = ChromeDriverManager().install()
+            chrome_bin = chrome_bin or shutil.which("google-chrome-stable") or shutil.which("google-chrome")
+        except Exception as e:
+            print(f"webdriver-manager fallback failed: {e}")
+
+    return chrome_bin, chromedriver_bin
 
 class SAPBot:
     def __init__(self):
