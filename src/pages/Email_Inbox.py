@@ -695,6 +695,10 @@ if process_all:
             if not att:
                 msg_str = f"Resume not found for **{cand_label}** (looked for `{specified_resume or candidate_name}`)"
                 st.error(f"❌ {msg_str}")
+                results_log.append({
+                    "File": cand_label,
+                    "Status": "Resume Not Found"
+                })
                 overall_log.append({
                     "Email": subject, "Candidate": cand_label, "Status": "Resume Not Found", "JR": jr_no
                 })
@@ -788,8 +792,15 @@ if process_all:
                     db_record_id = str(existing_record.get("id", "")).strip()
 
                     st.write(f"  🔁 Duplicate found → using existing record `{db_record_id}`")
+
+                    # 🔥 IMPORTANT: ensure we use existing status
+                    if existing_record:
+                        existing_status = str(existing_record.get("upload_to_sap", "")).strip().lower()
+                    else:
+                        existing_status = ""
                 else:
                     existing_record = db_record
+                    existing_status = str(existing_record.get("upload_to_sap", "")).strip().lower()
 
                 st.write(f"  💾 DB ready (id: `{db_record_id}`)")
 
@@ -798,15 +809,17 @@ if process_all:
                 overall_log.append({
                     "Email": subject, "Candidate": cand_label, "Status": f"DB Error: {db_exc}", "JR": jr_no
                 })
+                results_log.append({
+                    "File": file_name,
+                    "Status": f"DB Error: {str(db_exc)[:100]}"
+                })
                 continue
 
             # 4. Upload to SAP
             # 🔥 Decide if SAP upload is needed
             upload_needed = True
 
-            existing_status = str(existing_record.get("upload_to_sap", "")).strip().lower()
-
-            if existing_status == "done":
+            if existing_status == "Done":
                 upload_needed = False
                 st.info(f"  ⏭️ Already uploaded to SAP — skipping: **{cand_label}**")
 
@@ -816,6 +829,10 @@ if process_all:
                     "Candidate": cand_label,
                     "Status": "Already in SAP",
                     "JR": jr_no,
+                })
+                results_log.append({
+                    "File": file_name,
+                    "Status": "Already in SAP"
                 })
                 continue
 
@@ -827,9 +844,15 @@ if process_all:
                     "Status": "Skipped (SAP unavailable)",
                     "JR": jr_no,
                 })
+                results_log.append({
+                    "File": file_name,
+                    "Status": "SAP Skipped (No Bot)"
+                })
                 continue
 
-
+            # 🔥 INIT (REQUIRED)
+            sap_status = "Failed"
+            sap_error = ""
             def is_session_dead(err):
                 msg = str(err).lower()
                 return "invalid session id" in msg or "disconnected" in msg or "not connected to devtools" in msg
@@ -890,6 +913,12 @@ if process_all:
 
             if sap_status != "Done":
                 st.error(f"  ❌ SAP upload failed: {sap_error}")
+
+                results_log.append({
+                    "File": file_name,
+                    "Status": sap_error[:120] if sap_error else "SAP upload failed",
+                })
+                st.error(f"  ❌ SAP upload failed: {sap_error}")
                 # Capture a screenshot for the failure notification
                 if bot:
                     try:
@@ -924,7 +953,7 @@ if process_all:
                     )
 
                     if resp.status_code not in (200, 204):
-                        st.warning(f"  ⚠️ DB update failed: {resp.text}")
+                        raise Exception(f"DB update failed: {resp.text}")
                     else:
                         st.write(f"  📝 DB updated → upload_to_sap = {sap_status}")
 
