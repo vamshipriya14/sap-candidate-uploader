@@ -672,6 +672,10 @@ if process_all:
 
         # ── Process each candidate row ───────────────────────
         for cand in candidates_in_email:
+            existing_record = None
+            existing_status = ""
+            resume_path = ""
+            db_record_id = ""
             jr_no = cand["jr_no"]
             candidate_name = cand["candidate_name"]
             specified_resume = cand["resume"]
@@ -707,20 +711,41 @@ if process_all:
             file_name = att["name"]
             file_bytes = att["bytes"]
 
-            # 1. Upload to hrvolibot OneDrive  →  Inbox Resumes/<JR>/<file>
-            try:
-                jr_folder = jr_no if jr_no else "pending_jr"
+            # 1. Upload to Supabase   →  <JR>/<file>
+            resume_path = ""
+            existing_status = ""
+            existing_record = fetch_existing_record(
+                jr_no,
+                row_data["Email"],
+                row_data["Phone"]
+            )
 
-                resume_path = upload_resume(file_name, file_bytes, jr_folder)
-                st.write(
-                    f"  ☁️ Uploaded to supabase resumes bucket: "
-                    f"`{jr_folder_name(jr_no)}/{file_name}`"
-                )
-            except Exception as od_exc:
-                if "409" in str(od_exc):
-                    st.info("  ℹ️ Resume already exists in storage — continuing")
-                else:
-                    st.warning(f"  ⚠️ DB resume upload failed: {od_exc}")
+            if existing_record:
+                db_record_id = str(existing_record.get("id", "")).strip()
+                existing_status = str(existing_record.get("upload_to_sap", "")).strip().lower()
+                resume_path = existing_record.get("resume_path", "")
+
+                st.info(f"  🔁 Existing record found → `{db_record_id}`")
+            if existing_record:
+                st.info("  ⏭ Skipping upload — already exists in DB")
+            else:
+                try:
+                    jr_folder = jr_no if jr_no else "pending_jr"
+                    resume_path = upload_resume(file_name, file_bytes, jr_folder)
+
+                    st.write(
+                        f"  ☁️ Uploaded to supabase resumes bucket: "
+                        f"`{jr_folder_name(jr_no)}/{file_name}`"
+                    )
+
+                except Exception as od_exc:
+                    if "409" in str(od_exc):
+                        st.info("  ℹ️ Resume already exists in storage — continuing")
+                        resume_path = f"{jr_folder_name(jr_no)}/{file_name}"
+                    else:
+                        st.warning(f"  ⚠️ DB resume upload failed: {od_exc}")
+                        resume_path = ""
+
 
             # 2. Parse resume
             parsed = {}
@@ -770,95 +795,60 @@ if process_all:
                 # Store the source email ID to detect re-processing
                 "source_email_id": msg_id,
             }
+            existing_record = fetch_existing_record(
+                jr_no,
+                row_data["Email"],
+                row_data["Phone"]
+            )
+
+            if existing_record:
+                db_record_id = str(existing_record.get("id", "")).strip()
+                existing_status = str(existing_record.get("upload_to_sap", "")).strip().lower()
+                resume_path = existing_record.get("resume_path", "")
+
+                st.info(f"  🔁 Existing record found → `{db_record_id}`")
 
             # 3. Insert into Supabase DB
-            db_record_id = None
+            if not resume_path and not existing_record:
+                st.warning("  ⚠️ Resume path missing — storing empty path")
             try:
-                db_record = insert_resume_record(
-                    row_data,
-                    user,
-                    resume_path=resume_path
-                )
-
-                db_record_id = str(db_record.get("id", "")).strip()
-                existing_record = {}
-
-                # 🔥 If duplicate (no ID returned)
-                if not db_record_id:
-                    existing_record = fetch_existing_record(
-                        jr_no,
-                        row_data["Email"],
-                        row_data["Phone"]
+                if not existing_record:
+                    db_record = insert_resume_record(
+                        row_data,
+                        user,
+                        resume_path=resume_path
                     )
-
-                    db_record_id = str(existing_record.get("id", "")).strip()
-
-                    st.write(f"  🔁 Duplicate found → using existing record `{db_record_id}`")
-
-                    # 🔥 IMPORTANT: ensure we use existing status
-                    if existing_record:
-                        existing_status = str(existing_record.get("upload_to_sap", "")).strip().lower()
-                    else:
-                        existing_status = ""
-                else:
-                    existing_record = db_record
-                    existing_status = str(existing_record.get("upload_to_sap", "")).strip().lower()
+                    db_record_id = str(db_record.get("id", "")).strip()
+                    existing_status = ""
 
                 st.write(f"  💾 DB ready (id: `{db_record_id}`)")
 
-
             except Exception as db_exc:
-
                 err_str = str(db_exc)
 
-                # 🔥 HANDLE DUPLICATE PROPERLY
-
                 if "duplicate key value" in err_str.lower() or "23505" in err_str:
+                    st.warning("  🔁 Duplicate detected — using existing record")
 
-                    st.warning("  🔁 Duplicate detected — fetching existing record")
-
-                    existing_record = fetch_existing_record(
-
-                        jr_no,
-
-                        row_data["Email"],
-
-                        row_data["Phone"]
-
-                    )
-
-                    db_record_id = str(existing_record.get("id", "")).strip()
-
-                    existing_status = str(existing_record.get("upload_to_sap", "")).strip().lower()
-
-                    st.write(f"  🔁 Using existing record `{db_record_id}`")
-
-
+                    if not existing_record:
+                        st.error("  ❌ Duplicate detected but no existing record found")
+                        continue
                 else:
-
                     st.error(f"  ❌ DB insert failed: {db_exc}")
 
                     overall_log.append({
-
                         "Email": subject,
-
                         "Candidate": cand_label,
-
                         "Status": f"DB Error: {db_exc}",
-
                         "JR": jr_no
-
                     })
 
                     results_log.append({
-
                         "File": file_name,
-
                         "Status": f"DB Error: {err_str[:100]}"
-
                     })
 
-                    continue  # ❌ ONLY for real errors
+                    continue
+
 
             # 4. Upload to SAP
             # 🔥 Decide if SAP upload is needed
