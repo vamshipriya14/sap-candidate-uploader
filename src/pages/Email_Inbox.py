@@ -493,6 +493,22 @@ if fetch_clicked:
     with st.spinner("Connecting to mailbox…"):
         try:
             token = _app_token()
+
+            # ── Fetch raw inbox (unfiltered) for debug visibility ────────────────────
+            raw_url = (
+                f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/mailFolders/Inbox/messages"
+                f"?$top=20"
+                f"&$select=id,subject,receivedDateTime"
+                f"&$orderby=receivedDateTime desc"
+            )
+            raw_resp = requests.get(raw_url, headers=_graph_headers(token), timeout=30)
+            raw_msgs = raw_resp.json().get("value", []) if raw_resp.status_code == 200 else []
+            st.session_state.inbox_raw_subjects = [
+                f"{m.get('receivedDateTime','')[:16].replace('T',' ')}  —  {m.get('subject','(no subject)')}"
+                for m in raw_msgs
+            ]
+
+            # ── Now fetch filtered messages ────────────────────────────────────
             messages = fetch_inbox_messages(token, max_messages=50)
             st.session_state.inbox_messages = messages
             st.session_state.inbox_last_fetched = datetime.now().strftime("%d %b %Y, %I:%M %p")
@@ -502,6 +518,16 @@ if fetch_clicked:
                 st.info("No matching emails found in inbox.")
         except Exception as exc:
             st.error(f"Failed to fetch emails: {exc}")
+
+# ── Debug: show latest raw subjects from inbox ────────────────────────────
+if "inbox_raw_subjects" in st.session_state and st.session_state.inbox_raw_subjects:
+    with st.expander("🔍 Debug — Latest 20 subjects fetched from inbox (before filter)", expanded=True):
+        prefix_lower = SUBJECT_PREFIX.lower()
+        for subj in st.session_state.inbox_raw_subjects:
+            subj_text = subj.split("  —  ", 1)[-1] if "  —  " in subj else subj
+            match = subj_text.lower().startswith(prefix_lower)
+            icon = "✅" if match else "⬜"
+            st.markdown(f"{icon} `{subj}`")
 
 messages = st.session_state.inbox_messages
 
