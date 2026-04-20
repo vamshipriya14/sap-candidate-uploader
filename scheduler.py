@@ -48,7 +48,7 @@ log = logging.getLogger("scheduler")
 # ─────────────────────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────────────────────
-INBOX_EMAIL = os.environ.get("SCHEDULER_USER_EMAIL", "")
+INBOX_EMAIL = os.environ.get("INBOX_EMAIL", "hrvolibot@volibits.com")
 SUBJECT_PREFIX   = "Profiles - BS:"
 SUBMIT_TO_SAP    = os.environ.get("SCHEDULER_SUBMIT_TO_SAP", "true").lower() == "true"
 MAX_MESSAGES     = int(os.environ.get("SCHEDULER_MAX_MESSAGES", "50"))
