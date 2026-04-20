@@ -195,15 +195,28 @@ def move_message_to_processed(token: str, message_id: str) -> None:
 
 def check_already_processed(email_message_id: str) -> bool:
     try:
+        if not SUPABASE_TABLE:
+            log.warning("SUPABASE_TABLE is not set — skipping duplicate check")
+            return False
+
         resp = requests.get(
             f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
-            f"?source_email_id=eq.{email_message_id}&select=id&limit=1",
+            f"?source_email_id=eq.{email_message_id}&select=id,upload_to_sap",
             headers=_headers(),
             timeout=15,
         )
-        return resp.status_code == 200 and bool(resp.json())
-    except Exception:
-        return False
+        if resp.status_code == 200:
+            records = resp.json()
+            if not isinstance(records, list):   # ← guard against swagger response
+                log.warning(f"Unexpected DB response type: {type(records)} — treating as unprocessed")
+                return False
+            if not records:
+                return False
+            statuses = [str(r.get("upload_to_sap", "")).strip().lower() for r in records]
+            return all(s in ("done", "skipped") for s in statuses)
+    except Exception as e:
+        log.warning(f"check_already_processed error: {e}")
+    return False
 
 # ── Email body table parser (same as Email_Inbox.py) ─────────
 HEADER_KEYS = {
