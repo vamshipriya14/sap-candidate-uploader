@@ -800,8 +800,6 @@ if process_all:
                         )
                     except Exception as e:
                         st.warning(f"Recruiter update failed: {e}")
-                    st.error("❌ Existing record missing ID — skipping")
-                    continue
                 existing_status = str(existing_record.get("upload_to_sap", "")).strip().lower()
                 resume_path = existing_record.get("resume_path", "")
 
@@ -878,38 +876,71 @@ if process_all:
                     })
 
                     sap_status = "Done"
+                    # 🔥 Ensure recruiter fields are saved (important for duplicates)
+                    if db_record_id:
+                        try:
+                            requests.patch(
+                                f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{db_record_id.strip()}",
+                                headers=_headers(),
+                                json={
+                                    "client_recruiter": row_data.get("client_recruiter", ""),
+                                    "client_recruiter_email": row_data.get("client_recruiter_email", "")
+                                },
+                                timeout=10
+                            )
+                        except Exception as e:
+                            st.warning(f"Recruiter update failed after SAP: {e}")
                     st.success(f"✅ SAP uploaded: {cand_label}")
                     break
 
-                except Exception as e:
-                    # 📸 Capture screenshot on failure
-                    try:
-                        screenshot_name = f"{jr_no}_{cand_label}_failed"
-                        screenshot_path = bot._screenshot(screenshot_name)
 
-                        failed_upload_attachments.append({
-                            "name": f"{screenshot_name}.png",
-                            "content": screenshot_path.read_bytes(),
-                        })
-                    except Exception as ss_err:
-                        st.warning(f"Screenshot capture failed: {ss_err}")
+                except Exception as e:
+
                     sap_error = str(e)
 
-                    if attempt == 0:
-                        try:
-                            bot.close()
-                            bot = start_sap_bot()
-                            continue
-                        except:
-                            break
+                    # 🚫 Skip screenshot for known non-critical errors
 
+                    skip_screenshot_errors = [
+
+                        "requisition id",
+
+                        "not found in job list"
+
+                    ]
+
+                    if any(err in sap_error.lower() for err in skip_screenshot_errors):
+
+                        st.warning(f"⚠️ SAP skipped (non-critical): {sap_error}")
+
+                    else:
+
+                        # 📸 Capture screenshot only for real failures
+
+                        try:
+
+                            screenshot_name = f"{jr_no}_{cand_label}_failed"
+
+                            screenshot_path = bot._screenshot(screenshot_name)
+
+                            failed_upload_attachments.append({
+
+                                "name": f"{screenshot_name}.png",
+
+                                "content": screenshot_path.read_bytes(),
+
+                            })
+
+                        except Exception as ss_err:
+
+                            st.warning(f"Screenshot capture failed: {ss_err}")
+                    st.error(f"❌ SAP upload failed (attempt {attempt + 1}): {sap_error}")
             # ─────────────────────────────
             # 9. UPDATE DB STATUS
             # ─────────────────────────────
             if db_record_id:
                 try:
-                    requests.patch(
-                        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{db_record_id}",
+                    resp = requests.patch(
+                        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{db_record_id.strip()}",
                         headers=_headers(),
                         json={
                             "upload_to_sap": sap_status,
@@ -917,6 +948,11 @@ if process_all:
                         },
                         timeout=15
                     )
+
+                    if resp.status_code not in (200, 204):
+                        st.error(f"❌ DB update failed: {resp.text}")
+                    else:
+                        st.success(f"✅ DB updated → {sap_status}")
                 except Exception as e:
                     st.warning(f"DB update failed: {e}")
 
