@@ -11,6 +11,7 @@ from streamlit.errors import StreamlitSecretNotFoundError
 # from resume_repository import ... (not needed here yet)
 
 load_dotenv()
+
 import os
 
 def _secret(name: str, *fallback_names: str) -> str:

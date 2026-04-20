@@ -40,7 +40,7 @@ def _secret(name: str, *fallback_names: str) -> str:
     return ""
 SUPABASE_URL = _secret("SUPABASE_URL")
 SUPABASE_KEY = _secret("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_KEY")
-SUPABASE_TABLE = _secret("SUPABASE_RESUME_TABLE", default="candidates_submitted")
+SUPABASE_TABLE = _secret("SUPABASE_RESUME_TABLE","candidates_submitted")
 
 BUCKET = "resumes"
 
