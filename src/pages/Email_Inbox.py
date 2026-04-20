@@ -178,6 +178,8 @@ def fetch_inbox_messages(token: str, max_messages: int = 50) -> list[dict]:
     # Sort newest first
     unique.sort(key=lambda m: m.get("receivedDateTime", ""), reverse=True)
     return unique
+
+
 def fetch_message_attachments(token: str, message_id: str) -> list[dict]:
     headers = _graph_headers(token)
 
@@ -219,6 +221,7 @@ def fetch_message_attachments(token: str, message_id: str) -> list[dict]:
             })
 
     return attachments
+
 
 def mark_message_read(token: str, message_id: str) -> None:
     url = f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/messages/{message_id}"
@@ -264,10 +267,6 @@ _STOP_WORDS = {"hi", "hello", "dear", "regards", "thanks", "thank", "sincerely",
 
 
 def _find_header_tokens(line: str) -> list[tuple]:
-    """
-    Locate all known header keywords in a line (supports multi-word like 'candidate name').
-    Returns list of (char_start, char_end, canonical_key) sorted by position.
-    """
     found = []
     line_lower = line.lower()
     sorted_keys = sorted(HEADER_KEYS.keys(), key=lambda x: -len(x))
@@ -330,21 +329,6 @@ def _extract_rows(lines: list, col_map: dict, col_starts: list = None, splitter:
 
 
 def parse_body_table(html_body: str) -> list[dict]:
-    """
-    Parse the candidate table from the email body.
-    Expected columns: s.no, jr_no, candidate_name, resume  (order may vary)
-
-    Handles all common formats in priority order:
-      1. HTML <table>
-      2. Tab-separated
-      3. Pipe-separated
-      4. Comma-separated
-      5. Space-aligned plain text (e.g. typed in Outlook)
-
-    Returns list of dicts with keys: sno, jr_no, candidate_name, resume
-    """
-
-    # ── 1. HTML <table> ───────────────────────────────────────────────────────
     if re.search(r"<table", html_body, re.IGNORECASE):
         tr_blocks = re.findall(r"<tr[^>]*>(.*?)</tr>", html_body, re.IGNORECASE | re.DOTALL)
         table_rows = []
@@ -374,7 +358,6 @@ def parse_body_table(html_body: str) -> list[dict]:
                             return rows
                     break
 
-    # ── Strip HTML to plain text ──────────────────────────────────────────────
     text = re.sub(r"<[^>]+>", " ", html_body)
     for ent, rep in [("&nbsp;", " "), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">")]:
         text = text.replace(ent, rep)
@@ -382,7 +365,6 @@ def parse_body_table(html_body: str) -> list[dict]:
     text = re.sub(r"&[a-z]+;", " ", text)
     lines = [line for line in text.splitlines() if line.strip()]
 
-    # Find header line using multi-word-aware token finder
     header_idx, header_tokens, header_line = None, [], ""
     for idx, line in enumerate(lines):
         tokens = _find_header_tokens(line)
@@ -398,11 +380,9 @@ def parse_body_table(html_body: str) -> list[dict]:
     data_lines = lines[header_idx + 1:]
     col_map = {tok[2]: i for i, tok in enumerate(header_tokens)}
 
-    # ── 2. Tab-separated ──────────────────────────────────────────────────────
     if "\t" in header_line:
         return _extract_rows(data_lines, col_map, splitter=r"\t+")
 
-    # ── 3. Pipe-separated ─────────────────────────────────────────────────────
     if "|" in header_line:
         pipe_parts = [p.strip() for p in header_line.split("|") if p.strip()]
         cm = {}
@@ -413,7 +393,6 @@ def parse_body_table(html_body: str) -> list[dict]:
         if len(cm) >= 2:
             return _extract_rows(data_lines, cm, splitter=r"\|")
 
-    # ── 4. Comma-separated ────────────────────────────────────────────────────
     if "," in header_line and header_line.count(",") >= 2:
         comma_parts = [p.strip() for p in header_line.split(",")]
         cm = {}
@@ -424,17 +403,11 @@ def parse_body_table(html_body: str) -> list[dict]:
         if len(cm) >= 2:
             return _extract_rows(data_lines, cm, splitter=r",")
 
-    # ── 5. Space-aligned: use char offsets of header token starts ─────────────
     col_starts = [tok[0] for tok in header_tokens]
     return _extract_rows(data_lines, col_map, col_starts=col_starts)
 
 
 def match_attachment(candidate_name: str, attachments: list[dict]) -> dict | None:
-    """
-    Try to find the best matching attachment for a candidate when
-    the resume filename is not specified in the table.
-    Uses partial name matching (case-insensitive, spaces/dots/underscores ignored).
-    """
     if not candidate_name or not attachments:
         return None
 
@@ -442,20 +415,15 @@ def match_attachment(candidate_name: str, attachments: list[dict]) -> dict | Non
         return re.sub(r"[\s._-]+", "", s.lower())
 
     name_norm = normalise(candidate_name)
-
-    # Split candidate name into parts to support partial matching
     name_parts = [p for p in re.split(r"\s+", candidate_name.lower()) if len(p) > 2]
 
     best = None
     best_score = 0
 
     for att in attachments:
-        att_norm = normalise(att["name"].rsplit(".", 1)[0])  # strip extension
-        # Exact name match
+        att_norm = normalise(att["name"].rsplit(".", 1)[0])
         if name_norm and name_norm in att_norm:
             return att
-
-        # Partial: count how many name parts appear in attachment filename
         score = sum(1 for part in name_parts if part in att_norm)
         if score > best_score:
             best_score = score
@@ -531,7 +499,6 @@ if fetch_clicked:
     with st.spinner("Connecting to mailbox…"):
         try:
             token = _app_token()
-
             messages = fetch_inbox_messages(token, max_messages=50)
             st.session_state.inbox_messages = messages
             st.session_state.inbox_last_fetched = datetime.now().strftime("%d %b %Y, %I:%M %p")
@@ -554,7 +521,6 @@ if not messages:
 st.divider()
 st.subheader(f"📨 {len(messages)} Email(s) Found")
 
-# Show summary table of emails
 email_summary = []
 for msg in messages:
     email_summary.append({
@@ -597,13 +563,12 @@ if process_all:
     token = _app_token()
     today_text = date.today().strftime("%d-%b-%Y")
     overall_log = []
-    results_log = []          # for send_upload_notification (keys: File, Status)
-    failed_upload_attachments = []  # screenshots of SAP failures
+    results_log = []
+    failed_upload_attachments = []
     bot = None
 
     progress_bar = st.progress(0)
     status_box = st.empty()
-
 
     def start_sap_bot():
         bot = SAPBot()
@@ -611,16 +576,11 @@ if process_all:
         bot.login()
         return bot
 
-
     try:
         status_box.info("Connecting to SAP…")
         bot = start_sap_bot()
         status_box.success("SAP connected ✅")
     except Exception as sap_exc:
-        failed_upload_attachments.append({
-            "file": file.name,
-            "error": sap_error
-        })
         st.error(f"SAP connection failed: {sap_exc}")
         bot = None
 
@@ -629,40 +589,30 @@ if process_all:
         subject = _safe(msg.get("subject"))
         from_email = _safe(msg.get("from", {}).get("emailAddress", {}).get("address"))
 
-        # Extract skill from subject: "Profiles - BS: SAP Architect" → "SAP Architect"
         skill_from_subject = ""
-        subj_match = re.match(
-            r"profiles\s*-\s*bs:\s*(.+)", subject, re.IGNORECASE
-        )
+        subj_match = re.match(r"profiles\s*-\s*bs:\s*(.+)", subject, re.IGNORECASE)
         if subj_match:
             skill_from_subject = subj_match.group(1).strip()
 
         st.markdown(f"### 📧 Email {msg_idx + 1}/{len(messages)}: `{subject}`")
         st.caption(f"From: {from_email}")
 
-        # Check if already processed
         if check_already_processed(msg_id):
             st.info("⏭️ Already processed — skipping.")
-            overall_log.append({
-                "Email": subject, "Candidate": "—", "Status": "Already Processed", "JR": "—"
-            })
+            overall_log.append({"Email": subject, "Candidate": "—", "Status": "Already Processed", "JR": "—"})
             continue
 
-        # Parse candidate table from body
         body_content = msg.get("body", {}).get("content", "")
         candidates_in_email = parse_body_table(body_content)
 
         if not candidates_in_email:
             st.warning("⚠️ Could not parse candidate table from email body. Skipping.")
-            overall_log.append({
-                "Email": subject, "Candidate": "—", "Status": "Table Parse Failed", "JR": "—"
-            })
+            overall_log.append({"Email": subject, "Candidate": "—", "Status": "Table Parse Failed", "JR": "—"})
             continue
 
         st.write(f"Found **{len(candidates_in_email)}** candidate row(s) in email body:")
         st.dataframe(pd.DataFrame(candidates_in_email), hide_index=True, use_container_width=True)
 
-        # Fetch attachments
         try:
             attachments = fetch_message_attachments(token, msg_id)
             st.write(f"Downloaded **{len(attachments)}** resume attachment(s): "
@@ -671,7 +621,6 @@ if process_all:
             attachments = []
             st.warning(f"Could not fetch attachments: {att_exc}")
 
-        # Build attachment lookup by filename
         att_by_name = {a["name"].lower(): a for a in attachments}
 
         # ── Process each candidate row ───────────────────────
@@ -732,17 +681,15 @@ if process_all:
             first_name = parsed.get("first_name") or (name_parts[0] if name_parts else "")
             last_name = parsed.get("last_name") or (name_parts[1] if len(name_parts) > 1 else "")
 
-            # Get recruiter info from JR master
             client_recruiter = (
-                    jr_meta.get("client_recruiter")
-                    or jr_meta.get("recruiter")
-                    or ""
+                jr_meta.get("client_recruiter")
+                or jr_meta.get("recruiter")
+                or ""
             )
-
             client_recruiter_email = (
-                    jr_meta.get("client_recruiter_email")
-                    or jr_meta.get("recruiter_email")
-                    or ""
+                jr_meta.get("client_recruiter_email")
+                or jr_meta.get("recruiter_email")
+                or ""
             )
 
             row_data = {
@@ -754,54 +701,50 @@ if process_all:
                 "Last Name": last_name,
                 "Email": parsed.get("email", ""),
                 "Phone": parsed.get("phone", ""),
-
+                # ── These are now picked up by _resume_db_payload ──────────
+                "upload_to_sap": "Pending",          # DB column name (not display key)
                 "client_recruiter": client_recruiter,
                 "client_recruiter_email": client_recruiter_email,
-
+                # ──────────────────────────────────────────────────────────
                 "Actual Status": "Not Called",
                 "Call Iteration": "First Call",
-                "Upload to SAP": "Pending",
                 "source_email_id": msg_id,
             }
+
             # ─────────────────────────────
-            # 4. CHECK DUPLICATE (ONLY ONCE)
+            # 4. CHECK DUPLICATE
             # ─────────────────────────────
             if not row_data["Email"] and not row_data["Phone"]:
                 st.warning("⚠️ Missing email & phone — duplicate detection weak")
+
             existing_record = fetch_existing_record(
                 jr_no,
                 row_data["Email"],
-                row_data["Phone"]
+                row_data["Phone"],
             )
 
             if existing_record:
-                # 🔥 Backfill recruiter fields if missing in DB
-                if not existing_record.get("client_recruiter"):
-                    row_data["client_recruiter"] = jr_meta.get("client_recruiter", "")
-
-                if not existing_record.get("client_recruiter_email"):
-                    row_data["client_recruiter_email"] = (
-                            jr_meta.get("client_recruiter_email", "")
-                            or jr_meta.get("recruiter_email", "")
-                    )
                 db_record_id = str(existing_record.get("id") or "").strip()
+                existing_status = str(existing_record.get("upload_to_sap", "")).strip().lower()
+                resume_path = existing_record.get("resume_path", "")
 
-                # 🔥 Fix missing recruiter in DB
-                if db_record_id:
+                # Backfill recruiter fields if missing in existing DB record
+                if db_record_id and (
+                    not existing_record.get("client_recruiter")
+                    or not existing_record.get("client_recruiter_email")
+                ):
                     try:
                         requests.patch(
                             f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{db_record_id}",
                             headers=_headers(),
                             json={
-                                "client_recruiter": row_data.get("client_recruiter", ""),
-                                "client_recruiter_email": row_data.get("client_recruiter_email", "")
+                                "client_recruiter": client_recruiter,
+                                "client_recruiter_email": client_recruiter_email,
                             },
-                            timeout=10
+                            timeout=10,
                         )
                     except Exception as e:
-                        st.warning(f"Recruiter update failed: {e}")
-                existing_status = str(existing_record.get("upload_to_sap", "")).strip().lower()
-                resume_path = existing_record.get("resume_path", "")
+                        st.warning(f"Recruiter backfill failed: {e}")
 
                 st.info(f"🔁 Existing record → {db_record_id}")
 
@@ -812,7 +755,6 @@ if process_all:
                 try:
                     jr_folder = jr_no if jr_no else "pending_jr"
                     resume_path = upload_resume(file_name, file_bytes, jr_folder)
-
                 except Exception as e:
                     if "409" in str(e):
                         resume_path = resume_path or f"{jr_folder_name(jr_no)}/{file_name}"
@@ -825,12 +767,37 @@ if process_all:
             # ─────────────────────────────
             if not existing_record:
                 try:
-                    db_record = insert_resume_record(
-                        row_data,
-                        user,
-                        resume_path=resume_path
-                    )
+                    db_record = insert_resume_record(row_data, user, resume_path=resume_path)
                     db_record_id = str(db_record.get("id", "")).strip()
+
+                    # ── FIX: recover id when Supabase returns empty body
+                    #    (happens on merge-duplicate upserts) ──────────────
+                    if not db_record_id:
+                        recovered = fetch_existing_record(
+                            jr_no,
+                            row_data["Email"],
+                            row_data["Phone"],
+                        )
+                        db_record_id = str(recovered.get("id", "")).strip() if recovered else ""
+
+                    # Ensure upload_to_sap = Pending and recruiter fields are
+                    # written even on the merge-duplicate path where insert
+                    # returns an empty body.
+                    if db_record_id:
+                        try:
+                            requests.patch(
+                                f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{db_record_id}",
+                                headers=_headers(),
+                                json={
+                                    "upload_to_sap": "Pending",
+                                    "client_recruiter": client_recruiter,
+                                    "client_recruiter_email": client_recruiter_email,
+                                },
+                                timeout=10,
+                            )
+                        except Exception as e:
+                            st.warning(f"Post-insert field patch failed: {e}")
+
                 except Exception as e:
                     if "23505" in str(e):
                         st.warning("Duplicate detected after insert")
@@ -860,6 +827,8 @@ if process_all:
             sap_status = "Failed"
             sap_error = ""
 
+            NON_CRITICAL_SAP_ERRORS = ["requisition id", "not found in job list"]
+
             for attempt in range(2):
                 try:
                     file_obj = io.BytesIO(file_bytes)
@@ -876,95 +845,80 @@ if process_all:
                     })
 
                     sap_status = "Done"
-                    # 🔥 Ensure recruiter fields are saved (important for duplicates)
-                    if db_record_id:
-                        try:
-                            requests.patch(
-                                f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{db_record_id.strip()}",
-                                headers=_headers(),
-                                json={
-                                    "client_recruiter": row_data.get("client_recruiter", ""),
-                                    "client_recruiter_email": row_data.get("client_recruiter_email", "")
-                                },
-                                timeout=10
-                            )
-                        except Exception as e:
-                            st.warning(f"Recruiter update failed after SAP: {e}")
                     st.success(f"✅ SAP uploaded: {cand_label}")
                     break
 
-
                 except Exception as e:
-
                     sap_error = str(e)
 
-                    # 🚫 Skip screenshot for known non-critical errors
-
-                    skip_screenshot_errors = [
-
-                        "requisition id",
-
-                        "not found in job list"
-
-                    ]
-
-                    if any(err in sap_error.lower() for err in skip_screenshot_errors):
-
+                    if any(err in sap_error.lower() for err in NON_CRITICAL_SAP_ERRORS):
+                        # ── Non-critical: mark as skipped and stop retrying ──
+                        sap_status = "Skipped"
                         st.warning(f"⚠️ SAP skipped (non-critical): {sap_error}")
+                        break  # don't retry; don't screenshot
 
-                    else:
+                    # Real failure — capture screenshot and retry once
+                    try:
+                        screenshot_name = f"{jr_no}_{cand_label}_attempt{attempt + 1}"
+                        screenshot_path = bot._screenshot(screenshot_name)
+                        failed_upload_attachments.append({
+                            "name": f"{screenshot_name}.png",
+                            "content": screenshot_path.read_bytes(),
+                        })
+                    except Exception as ss_err:
+                        st.warning(f"Screenshot capture failed: {ss_err}")
 
-                        # 📸 Capture screenshot only for real failures
-
-                        try:
-
-                            screenshot_name = f"{jr_no}_{cand_label}_failed"
-
-                            screenshot_path = bot._screenshot(screenshot_name)
-
-                            failed_upload_attachments.append({
-
-                                "name": f"{screenshot_name}.png",
-
-                                "content": screenshot_path.read_bytes(),
-
-                            })
-
-                        except Exception as ss_err:
-
-                            st.warning(f"Screenshot capture failed: {ss_err}")
                     st.error(f"❌ SAP upload failed (attempt {attempt + 1}): {sap_error}")
+
             # ─────────────────────────────
             # 9. UPDATE DB STATUS
             # ─────────────────────────────
             if db_record_id:
+                record_id_clean = db_record_id.strip()
+                patch_payload = {
+                    "upload_to_sap": sap_status,          # "Done" | "Failed" | "Skipped"
+                    "client_recruiter": client_recruiter,
+                    "client_recruiter_email": client_recruiter_email,
+                }
+                if sap_error:
+                    patch_payload["error_message"] = sap_error[:500]
+
                 try:
                     resp = requests.patch(
-                        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{db_record_id.strip()}",
-                        headers=_headers(),
-                        json={
-                            "upload_to_sap": sap_status,
-                            "error_message": sap_error[:500]
-                        },
-                        timeout=15
+                        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{record_id_clean}",
+                        headers={**_headers(), "Prefer": "return=representation"},
+                        json=patch_payload,
+                        timeout=15,
                     )
-
                     if resp.status_code not in (200, 204):
-                        st.error(f"❌ DB update failed: {resp.text}")
+                        st.error(f"❌ DB status update failed ({resp.status_code}): {resp.text}")
                     else:
-                        st.success(f"✅ DB updated → {sap_status}")
+                        # Confirm the row was actually matched (204 = no body, 200 = body)
+                        if resp.status_code == 200:
+                            updated_rows = resp.json()
+                            if not updated_rows:
+                                st.warning(
+                                    f"⚠️ PATCH returned 200 but matched 0 rows — "
+                                    f"id={record_id_clean} not found in {SUPABASE_TABLE}"
+                                )
+                            else:
+                                st.success(f"✅ DB updated → upload_to_sap = {sap_status}")
+                        else:
+                            st.success(f"✅ DB updated → upload_to_sap = {sap_status}")
                 except Exception as e:
-                    st.warning(f"DB update failed: {e}")
+                    st.warning(f"DB update exception: {e}")
+            else:
+                st.warning(f"⚠️ Cannot update DB — db_record_id is empty for {cand_label}")
 
             results_log.append({
                 "File": file_name,
-                "Status": "Success" if sap_status == "Done" else sap_error[:100]
+                "Status": "Success" if sap_status == "Done" else sap_error[:100],
             })
             overall_log.append({
                 "Email": subject,
                 "Candidate": cand_label,
                 "Status": sap_status,
-                "JR": jr_no
+                "JR": jr_no,
             })
 
     st.divider()
@@ -979,10 +933,9 @@ if process_all:
 
     st.session_state.inbox_processing_log = overall_log
 
-    # ── Send upload report email ──────────────────────────────────
     if results_log:
         with st.spinner("Sending upload report…"):
-            ok, msg = send_upload_notification(
+            ok, msg_result = send_upload_notification(
                 access_token=user.get("access_token", ""),
                 user=user,
                 results=results_log,
@@ -993,9 +946,8 @@ if process_all:
         if ok:
             st.info(f"📧 Upload report sent to **{user['email']}**")
         else:
-            st.warning(f"Upload report not sent: {msg}")
+            st.warning(f"Upload report not sent: {msg_result}")
 
-# ── Show last run log if available ───────────────────────────
 elif st.session_state.inbox_processing_log:
     st.divider()
     st.subheader("📋 Last Processing Run")

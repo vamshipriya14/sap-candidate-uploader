@@ -86,6 +86,11 @@ def _candidate_name(row: dict) -> str:
 # ─────────────────────────────────────────────
 # 🔴 Fix #1: Extracted _resume_db_payload so update_resume_record can call it
 def _resume_db_payload(row: dict, user: dict, resume_path: str | None = None) -> dict:
+    # Support both display-key ("Upload to SAP") used by the main app's row_dict
+    # and the DB-column key ("upload_to_sap") used by the email inbox's row_data.
+    upload_to_sap_val = (
+        str(row.get("upload_to_sap", "") or row.get("Upload to SAP", "")).strip() or None
+    )
     payload = {
         "jr_number": str(row.get("JR Number", "")).strip(),
         "date_text": str(row.get("Date", "")).strip(),
@@ -100,6 +105,11 @@ def _resume_db_payload(row: dict, user: dict, resume_path: str | None = None) ->
         "created_at": _now_iso(),
         "recruiter": user.get("name", ""),
         "recruiter_email": user.get("email", ""),
+        # ── Fields populated by the Email Inbox page ──────────────────────
+        "upload_to_sap": upload_to_sap_val,
+        "client_recruiter": str(row.get("client_recruiter", "")).strip() or None,
+        "client_recruiter_email": str(row.get("client_recruiter_email", "")).strip() or None,
+        "source_email_id": str(row.get("source_email_id", "")).strip() or None,
     }
     # remove empty / None values
     return {k: v for k, v in payload.items() if v not in ("", None)}
@@ -247,7 +257,7 @@ def fetch_existing_record(jr, email, phone):
     url = (
         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
         f"?jr_number=eq.{jr}&email=eq.{email}&phone=eq.{phone}"
-        f"&select=id,upload_to_sap&limit=1"
+        f"&select=id,upload_to_sap,resume_path,client_recruiter,client_recruiter_email&limit=1"
     )
 
     resp = requests.get(url, headers=_headers(), timeout=15)
