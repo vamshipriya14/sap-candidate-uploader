@@ -88,72 +88,95 @@ def _graph_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
 
+def _get_inbox_subfolder_ids(token: str) -> list[tuple]:
+    """
+    Return list of (folder_id, display_name) for Inbox + all its child subfolders.
+    Recursively fetches up to 2 levels deep to cover Outlook rule-created folders.
+    """
+    headers = _graph_headers(token)
+    folders = [("Inbox", "Inbox")]
+
+    child_url = (
+        f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}"
+        f"/mailFolders/Inbox/childFolders?$top=50&$select=id,displayName"
+    )
+    resp = requests.get(child_url, headers=headers, timeout=20)
+    if resp.status_code == 200:
+        for f in resp.json().get("value", []):
+            fid = f.get("id", "")
+            fname = f.get("displayName", "")
+            if fid:
+                folders.append((fid, fname))
+                # One level deeper (grandchildren)
+                gc_url = (
+                    f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}"
+                    f"/mailFolders/{fid}/childFolders?$top=50&$select=id,displayName"
+                )
+                gc_resp = requests.get(gc_url, headers=headers, timeout=20)
+                if gc_resp.status_code == 200:
+                    for gf in gc_resp.json().get("value", []):
+                        gfid = gf.get("id", "")
+                        gfname = gf.get("displayName", "")
+                        if gfid:
+                            folders.append((gfid, f"{fname}/{gfname}"))
+    return folders
+
+
 def fetch_inbox_messages(token: str, max_messages: int = 50) -> list[dict]:
     """
-    Return messages from hrvolibot inbox whose subject starts with
-    'Profiles - BS:'.
-
-    Strategy (most reliable first):
-      1. $search on subject keyword — scans entire inbox, not capped by position.
-      2. $filter startsWith — server-side exact prefix match (may be unsupported).
-      3. Plain page fetch + local filter — last resort, limited to max_messages.
-
-    Results from whichever strategy succeeds are always locally re-filtered
-    to guarantee only matching subjects are returned.
+    Return messages whose subject starts with 'Profiles - BS:' from
+    Inbox AND all its subfolders (handles Outlook routing rules).
     """
-    import urllib.parse
-
     prefix_lower = SUBJECT_PREFIX.lower()
     headers = _graph_headers(token)
+    matched = []
 
-    # ── Strategy 1: $search on subject keyword ───────────────────────────────
-    # $search scans the full mailbox (ignores $top position) and is supported
-    # on shared mailboxes where $filter is not. Cannot be combined with $orderby.
-    search_keyword = "Profiles"   # short keyword; we re-filter locally for exact prefix
-    search_url = (
-        f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/mailFolders/Inbox/messages"
-        f"?$search=\"subject:{search_keyword}\""
-        f"&$top={max_messages}"
-        f"&$select=id,subject,from,receivedDateTime,body,hasAttachments,isRead"
-    )
-    resp = requests.get(search_url, headers=headers, timeout=30)
+    # Discover Inbox root + all subfolders
+    folders = _get_inbox_subfolder_ids(token)
 
-    if resp.status_code == 200:
-        all_msgs = resp.json().get("value", [])
-        matched = [m for m in all_msgs if _safe(m.get("subject")).lower().startswith(prefix_lower)]
-        if matched:
-            return matched
-        # $search succeeded but returned 0 matches after local filter —
-        # fall through to try $filter in case $search ranking dropped them.
+    for folder_id, folder_name in folders:
+        # Try $search first (scans full folder regardless of position)
+        search_url = (
+            f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}"
+            f"/mailFolders/{folder_id}/messages"
+            f"?$search=\"subject:Profiles\""
+            f"&$top={max_messages}"
+            f"&$select=id,subject,from,receivedDateTime,body,hasAttachments,isRead"
+        )
+        resp = requests.get(search_url, headers=headers, timeout=30)
+        if resp.status_code == 200:
+            msgs = resp.json().get("value", [])
+            hits = [m for m in msgs if _safe(m.get("subject")).lower().startswith(prefix_lower)]
+            if hits:
+                matched.extend(hits)
+                continue  # found via search, skip fallback for this folder
 
-    # ── Strategy 2: $filter startsWith ───────────────────────────────────────
-    prefix_escaped = SUBJECT_PREFIX.replace("'", "''")
-    filter_url = (
-        f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/mailFolders/Inbox/messages"
-        f"?$top={max_messages}"
-        f"&$select=id,subject,from,receivedDateTime,body,hasAttachments,isRead"
-        f"&$orderby=receivedDateTime desc"
-        f"&$filter=startsWith(subject,'{urllib.parse.quote(prefix_escaped)}')"
-    )
-    resp = requests.get(filter_url, headers=headers, timeout=30)
+        # Fallback: plain page + local filter
+        plain_url = (
+            f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}"
+            f"/mailFolders/{folder_id}/messages"
+            f"?$top={max_messages}"
+            f"&$select=id,subject,from,receivedDateTime,body,hasAttachments,isRead"
+            f"&$orderby=receivedDateTime desc"
+        )
+        resp = requests.get(plain_url, headers=headers, timeout=30)
+        if resp.status_code == 200:
+            msgs = resp.json().get("value", [])
+            hits = [m for m in msgs if _safe(m.get("subject")).lower().startswith(prefix_lower)]
+            matched.extend(hits)
 
-    if resp.status_code == 200:
-        all_msgs = resp.json().get("value", [])
-        return [m for m in all_msgs if _safe(m.get("subject")).lower().startswith(prefix_lower)]
+    # Deduplicate by message id
+    seen = set()
+    unique = []
+    for m in matched:
+        mid = m.get("id", "")
+        if mid not in seen:
+            seen.add(mid)
+            unique.append(m)
 
-    # ── Strategy 3: plain page + local filter (last resort) ──────────────────
-    plain_url = (
-        f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/mailFolders/Inbox/messages"
-        f"?$top={max_messages}"
-        f"&$select=id,subject,from,receivedDateTime,body,hasAttachments,isRead"
-        f"&$orderby=receivedDateTime desc"
-    )
-    resp = requests.get(plain_url, headers=headers, timeout=30)
-    resp.raise_for_status()
-    all_msgs = resp.json().get("value", [])
-    return [m for m in all_msgs if _safe(m.get("subject")).lower().startswith(prefix_lower)]
-
-
+    # Sort newest first
+    unique.sort(key=lambda m: m.get("receivedDateTime", ""), reverse=True)
+    return unique
 def fetch_message_attachments(token: str, message_id: str) -> list[dict]:
     """Return list of attachment dicts with name + contentBytes (decoded)."""
     url = (
@@ -494,12 +517,12 @@ if fetch_clicked:
         try:
             token = _app_token()
 
-            # ── Fetch top 20 from Inbox + JunkEmail + clutter folders for debug ──────
+            # ── Scan Inbox + all subfolders for debug visibility ─────────────────
             def _fetch_folder_subjects(folder_id: str, label: str) -> list[str]:
                 url = (
                     f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}"
                     f"/mailFolders/{folder_id}/messages"
-                    f"?$top=10&$select=id,subject,receivedDateTime"
+                    f"?$top=5&$select=id,subject,receivedDateTime"
                     f"&$orderby=receivedDateTime desc"
                 )
                 r = requests.get(url, headers=_graph_headers(token), timeout=20)
@@ -509,11 +532,30 @@ if fetch_clicked:
                     for m in msgs
                 ]
 
-            raw_subjects = (
-                _fetch_folder_subjects("Inbox", "Inbox")
-                + _fetch_folder_subjects("JunkEmail", "Junk")
-                + _fetch_folder_subjects("clutter", "Clutter")
+            # Show all inbox subfolders with counts
+            subfolders_resp = requests.get(
+                f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}"
+                f"/mailFolders/Inbox/childFolders?$top=50",
+                headers=_graph_headers(token), timeout=20
             )
+            subfolders = subfolders_resp.json().get("value", []) if subfolders_resp.status_code == 200 else []
+            st.session_state.inbox_all_folders = (
+                ["[Inbox root]  (checking...)"]
+                + [
+                    f"[Inbox/{f.get('displayName','?')}]  "
+                    f"totalItems: {f.get('totalItemCount',0)}, unread: {f.get('unreadItemCount',0)}"
+                    for f in subfolders
+                ]
+            )
+
+            # Fetch latest subjects from Inbox root + every subfolder
+            raw_subjects = _fetch_folder_subjects("Inbox", "Inbox")
+            for f in subfolders:
+                fid = f.get("id", "")
+                fname = f.get("displayName", "")
+                if fid:
+                    raw_subjects += _fetch_folder_subjects(fid, f"Inbox/{fname}")
+
             st.session_state.inbox_raw_subjects = raw_subjects
 
             # ── Now fetch filtered messages ────────────────────────────────────
@@ -527,19 +569,28 @@ if fetch_clicked:
         except Exception as exc:
             st.error(f"Failed to fetch emails: {exc}")
 
-# ── Debug: show raw subjects across folders ────────────────────────────
-if "inbox_raw_subjects" in st.session_state and st.session_state.inbox_raw_subjects:
-    with st.expander("🔍 Debug — Latest subjects across Inbox / Junk / Clutter (before filter)", expanded=True):
+# ── Debug: show all folders + raw subjects ────────────────────────────
+if "inbox_raw_subjects" in st.session_state or "inbox_all_folders" in st.session_state:
+    with st.expander("🔍 Debug — All mail folders + latest subjects (before filter)", expanded=True):
+
+        # Show all folders with counts
+        if st.session_state.get("inbox_all_folders"):
+            st.markdown("**📂 All mail folders found on this mailbox:**")
+            for folder_line in st.session_state.inbox_all_folders:
+                st.markdown(f" `{folder_line}`")
+            st.divider()
+
+        # Show subjects per folder
         prefix_lower = SUBJECT_PREFIX.lower()
-        for subj in st.session_state.inbox_raw_subjects:
-            subj_text = subj.split("  —  ", 1)[-1] if "  —  " in subj else subj
-            match = subj_text.lower().startswith(prefix_lower)
-            icon = "✅" if match else "⬜"
-            st.markdown(f"{icon} `{subj}`")
-        st.caption(
-            "✅ = subject matches `Profiles - BS:` prefix — "
-            "if your email shows here with ✅ but still not fetched, share this screenshot."
-        )
+        raw_subjects = st.session_state.get("inbox_raw_subjects", [])
+        if raw_subjects:
+            st.markdown("**📨 Latest 5 emails per folder:**")
+            for subj in raw_subjects:
+                subj_text = subj.split("  —  ", 1)[-1] if "  —  " in subj else subj
+                match = subj_text.lower().startswith(prefix_lower)
+                icon = "✅" if match else "⬜"
+                st.markdown(f"{icon} `{subj}`")
+        st.caption("✅ = matches `Profiles - BS:` prefix")
 
 messages = st.session_state.inbox_messages
 
