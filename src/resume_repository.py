@@ -42,7 +42,15 @@ BUCKET = "resumes"
 def _now_iso():
     return datetime.now(timezone.utc).isoformat()
 
-
+def _supabase_headers() -> dict:
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise Exception("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
 def _headers(json=True):
     return {
         "Authorization": f"Bearer {SUPABASE_KEY}",
