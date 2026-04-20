@@ -717,8 +717,10 @@ if process_all:
                     f"`{jr_folder_name(jr_no)}/{file_name}`"
                 )
             except Exception as od_exc:
-                resume_path = ""
-                st.warning(f"  ⚠️ DB resume upload failed: {od_exc}")
+                if "409" in str(od_exc):
+                    st.info("  ℹ️ Resume already exists in storage — continuing")
+                else:
+                    st.warning(f"  ⚠️ DB resume upload failed: {od_exc}")
 
             # 2. Parse resume
             parsed = {}
@@ -759,10 +761,10 @@ if process_all:
                 "Call Iteration": "First Call",
                 "comments/Availability": "",
                 "Error": "",
-                "Upload to SAP": "Yes",
+                "Upload to SAP": "Pending",
                 "client_recruiter": jr_meta.get("client_recruiter", ""),
                 "client_recruiter_email": jr_meta.get("recruiter_email", ""),
-                "client_email_sent": "No",
+                "client_email_sent": "Pending",
                 "recruiter": user.get("name", ""),
                 "recruiter_email": user.get("email", ""),
                 # Store the source email ID to detect re-processing
@@ -804,24 +806,69 @@ if process_all:
 
                 st.write(f"  💾 DB ready (id: `{db_record_id}`)")
 
+
             except Exception as db_exc:
-                st.error(f"  ❌ DB insert failed: {db_exc}")
-                overall_log.append({
-                    "Email": subject, "Candidate": cand_label, "Status": f"DB Error: {db_exc}", "JR": jr_no
-                })
-                results_log.append({
-                    "File": file_name,
-                    "Status": f"DB Error: {str(db_exc)[:100]}"
-                })
-                continue
+
+                err_str = str(db_exc)
+
+                # 🔥 HANDLE DUPLICATE PROPERLY
+
+                if "duplicate key value" in err_str.lower() or "23505" in err_str:
+
+                    st.warning("  🔁 Duplicate detected — fetching existing record")
+
+                    existing_record = fetch_existing_record(
+
+                        jr_no,
+
+                        row_data["Email"],
+
+                        row_data["Phone"]
+
+                    )
+
+                    db_record_id = str(existing_record.get("id", "")).strip()
+
+                    existing_status = str(existing_record.get("upload_to_sap", "")).strip().lower()
+
+                    st.write(f"  🔁 Using existing record `{db_record_id}`")
+
+
+                else:
+
+                    st.error(f"  ❌ DB insert failed: {db_exc}")
+
+                    overall_log.append({
+
+                        "Email": subject,
+
+                        "Candidate": cand_label,
+
+                        "Status": f"DB Error: {db_exc}",
+
+                        "JR": jr_no
+
+                    })
+
+                    results_log.append({
+
+                        "File": file_name,
+
+                        "Status": f"DB Error: {err_str[:100]}"
+
+                    })
+
+                    continue  # ❌ ONLY for real errors
 
             # 4. Upload to SAP
             # 🔥 Decide if SAP upload is needed
             upload_needed = True
 
-            if existing_status == "Done":
+            # 🔥 Treat ONLY "done" as completed
+            if existing_status == "done":
                 upload_needed = False
-                st.info(f"  ⏭️ Already uploaded to SAP — skipping: **{cand_label}**")
+            else:
+                upload_needed = True
 
             if not upload_needed:
                 overall_log.append({

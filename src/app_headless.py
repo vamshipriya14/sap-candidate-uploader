@@ -249,7 +249,7 @@ def clear_pending_upload_state() -> None:
 def _review_row_style(row: pd.Series):
     if str(row.get("Error", "")).strip():
         return ["background-color: #ffe5e5"] * len(row)
-    if str(row.get("Upload to SAP", "")).strip() == "Yes":
+    if str(row.get("Upload to SAP", "")).strip() == "Pending":
         return ["background-color: #e8f7e8"] * len(row)
     if str(row.get("Upload to SAP", "")).strip() == "Failed":
         return ["background-color: #ffe5e5"] * len(row)
@@ -369,8 +369,8 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
                 del st.session_state.resume_record_ids[file_name]
                 st.session_state.resume_row_snapshots.pop(file_name, None)
                 st.session_state.resume_committed_jr.pop(file_name, None)
-                merged_row_dict["upload_to_sap"] = "No"
-                merged_row_dict["client_email_sent"] = "No"
+                merged_row_dict["upload_to_sap"] = "Pending"
+                merged_row_dict["client_email_sent"] = "Pending"
                 record_id = None
 
         snapshot = _row_snapshot(merged_row_dict)
@@ -382,9 +382,9 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
                 st.session_state.resume_committed_jr[file_name] = str(merged_row_dict.get("JR Number", "")).strip()
         else:
             try:
-                merged_row_dict.setdefault("client_email_sent", "No")
-                if str(merged_row_dict.get("client_email_sent", "No")).strip() not in ("Yes", "No"):
-                    merged_row_dict["client_email_sent"] = "No"
+                merged_row_dict.setdefault("client_email_sent", "Pending")
+                if str(merged_row_dict.get("client_email_sent", "Pending")).strip() not in ("Sent", "Pending"):
+                    merged_row_dict["client_email_sent"] = "Pending"
                 record = insert_resume_record(merged_row_dict, user, resume_path=current_link)
                 new_id = str(record.get("id", "")).strip()
                 st.session_state.resume_record_ids[file_name] = new_id
@@ -581,8 +581,8 @@ def _record_matches_stats_filters(r) -> bool:
 _filtered_stats_records = [r for r in _all_db_records if _record_matches_stats_filters(r)]
 _total      = len(_filtered_stats_records)
 _uploaded   = sum(1 for r in _filtered_stats_records if str(r.get("upload_to_sap", "")).strip() == "Done")
-_pending    = sum(1 for r in _filtered_stats_records if str(r.get("upload_to_sap", "")).strip() not in ("Done", "No"))
-_email_sent = sum(1 for r in _filtered_stats_records if str(r.get("client_email_sent", "No")).strip() == "Yes")
+_pending    = sum(1 for r in _filtered_stats_records if str(r.get("upload_to_sap", "")).strip() not in ("Done", "Pending"))
+_email_sent = sum(1 for r in _filtered_stats_records if str(r.get("client_email_sent", "Pending")).strip() == "Sent")
 
 _today_str     = _today.strftime("%d-%b-%Y")
 # Today always shows today's data for the selected recruiter, ignoring the date range.
@@ -599,8 +599,8 @@ _today_records = [
 ]
 _today_total      = len(_today_records)
 _today_uploaded   = sum(1 for r in _today_records if str(r.get("upload_to_sap", "")).strip() == "Done")
-_today_pending    = sum(1 for r in _today_records if str(r.get("upload_to_sap", "")).strip() not in ("Done", "No"))
-_today_email_sent = sum(1 for r in _today_records if str(r.get("client_email_sent", "No")).strip() == "Yes")
+_today_pending    = sum(1 for r in _today_records if str(r.get("upload_to_sap", "")).strip() not in ("Done", "Pending"))
+_today_email_sent = sum(1 for r in _today_records if str(r.get("client_email_sent", "Pending")).strip() == "Sent")
 
 
 def _mini_stat(label: str, value, bg: str, text: str = "#ffffff") -> str:
@@ -733,10 +733,10 @@ if files:
                 "Call Iteration": "First Call",
                 "comments/Availability": "",
                 "Error": "",
-                "Upload to SAP": "Yes",
+                "Upload to SAP": "Pending",
                 "client_recruiter": "",
                 "client_recruiter_email": "",
-                "client_email_sent": "No",
+                "client_email_sent": "Pending",
                 "recruiter": user.get("name", ""),
                 "recruiter_email": user.get("email", ""),
             }
@@ -1022,7 +1022,7 @@ with st.form("resume_editor_form"):
             ),
             "Upload to SAP": st.column_config.SelectboxColumn(
                 "Upload to SAP",
-                options=["Yes", "No", "Done", "Failed"],
+                options=["Pending", "Done", "Failed"],
             ),
             "Call Iteration": st.column_config.SelectboxColumn(
                 "Call Iteration",
@@ -1142,7 +1142,7 @@ if st.button("Upload", type="primary", width="stretch"):
 
     reset_email_state()
     upload_rows = edited_df[
-        (edited_df["Upload to SAP"].fillna("").str.strip() == "Yes")
+        (edited_df["Upload to SAP"].fillna("").str.strip() == "Pending")
     ]
 
     if upload_rows.empty:

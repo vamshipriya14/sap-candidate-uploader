@@ -31,7 +31,7 @@ create table if not exists public.candidates_submitted (
     modified_at timestamptz not null default timezone('utc', now()),
     client_recruiter text not null default '',
     client_recruiter_email text not null default '',
-    client_email_sent text not null default 'No',
+    client_email_sent text not null default 'Pending',
     recruiter text not null default '',
     recruiter_email text not null default ''
 );

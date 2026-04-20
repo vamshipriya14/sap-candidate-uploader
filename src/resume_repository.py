@@ -358,7 +358,7 @@ def fetch_unsent_email_records() -> list[dict]:
     """Fetch records where SAP upload is Done and client email has not been sent."""
     response = requests.get(
         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
-        "?upload_to_sap=eq.Done&client_email_sent=eq.No&select=*",
+        "?upload_to_sap=eq.Done&client_email_sent=eq.Pending&select=*",
         headers=_headers(),
         timeout=30,
     )
@@ -367,14 +367,14 @@ def fetch_unsent_email_records() -> list[dict]:
 
 
 def mark_client_email_sent(record_ids: list[str]) -> None:
-    """Mark the given record IDs as client_email_sent=Yes."""
+    """Mark the given record IDs as client_email_sent=Pending."""
     if not record_ids:
         return
     ids_str = ",".join(record_ids)
     response = requests.patch(
         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=in.({ids_str})",
         headers=_headers(),
-        json={"client_email_sent": "Yes"},
+        json={"client_email_sent": "Pending"},
         timeout=30,
     )
     response.raise_for_status()

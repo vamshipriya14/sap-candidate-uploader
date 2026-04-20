@@ -130,7 +130,7 @@ If `JR Number` is missing, save will be blocked.
 
 To send a candidate to SAP:
 
-1. Set `Upload to SAP` = `Yes`
+1. Set `Upload to SAP` = `Pending`
 2. Confirm the candidate
 3. Start the SAP upload
 
@@ -346,7 +346,7 @@ Update the missing values in the editable candidate table and try again.
 3. Check parsed data
 4. Fill missing mandatory fields
 5. Save table
-6. Set `Upload to SAP` = `Yes`
+6. Set `Upload to SAP` = `Pending`
 7. Upload to SAP
 8. Open `Pending Client Emails`
 9. Select JR
