@@ -36,6 +36,7 @@ PROTECTED_FIELDS = [
     "recruiter_email",
 ]
 
+EMAIL_CC = st.secrets.get("EMAIL_CC", [])
 
 def _safe_merge(base: dict, incoming: dict) -> dict:
     """
@@ -1376,6 +1377,8 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
             results=results_log,
             submit_mode=submit_mode,
             attachments=failed_upload_attachments,
+            cc=EMAIL_CC,
+
         )
 
     if ok:

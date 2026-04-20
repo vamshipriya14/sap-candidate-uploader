@@ -43,7 +43,7 @@ from uploader import upload_to_sap
 # ─────────────────────────────────────────────────────────────
 INBOX_EMAIL = "hrvolibot@volibits.com"
 SUBJECT_PREFIX = "Profiles - BS:"          # standard prefix in every email
-
+EMAIL_CC = st.secrets.get("EMAIL_CC", [])
 
 # ─────────────────────────────────────────────────────────────
 # PAGE SETUP
@@ -733,10 +733,16 @@ if process_all:
             last_name = parsed.get("last_name") or (name_parts[1] if len(name_parts) > 1 else "")
 
             # Get recruiter info from JR master
-            client_recruiter = jr_meta.get("client_recruiter", "")
+            client_recruiter = (
+                    jr_meta.get("client_recruiter")
+                    or jr_meta.get("recruiter")
+                    or ""
+            )
+
             client_recruiter_email = (
-                    jr_meta.get("client_recruiter_email", "")
-                    or jr_meta.get("recruiter_email", "")
+                    jr_meta.get("client_recruiter_email")
+                    or jr_meta.get("recruiter_email")
+                    or ""
             )
 
             row_data = {
@@ -780,7 +786,20 @@ if process_all:
                     )
                 db_record_id = str(existing_record.get("id") or "").strip()
 
-                if not db_record_id:
+                # 🔥 Fix missing recruiter in DB
+                if db_record_id:
+                    try:
+                        requests.patch(
+                            f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{db_record_id}",
+                            headers=_headers(),
+                            json={
+                                "client_recruiter": row_data.get("client_recruiter", ""),
+                                "client_recruiter_email": row_data.get("client_recruiter_email", "")
+                            },
+                            timeout=10
+                        )
+                    except Exception as e:
+                        st.warning(f"Recruiter update failed: {e}")
                     st.error("❌ Existing record missing ID — skipping")
                     continue
                 existing_status = str(existing_record.get("upload_to_sap", "")).strip().lower()
@@ -863,6 +882,17 @@ if process_all:
                     break
 
                 except Exception as e:
+                    # 📸 Capture screenshot on failure
+                    try:
+                        screenshot_name = f"{jr_no}_{cand_label}_failed"
+                        screenshot_path = bot._screenshot(screenshot_name)
+
+                        failed_upload_attachments.append({
+                            "name": f"{screenshot_name}.png",
+                            "content": screenshot_path.read_bytes(),
+                        })
+                    except Exception as ss_err:
+                        st.warning(f"Screenshot capture failed: {ss_err}")
                     sap_error = str(e)
 
                     if attempt == 0:
@@ -922,6 +952,7 @@ if process_all:
                 results=results_log,
                 submit_mode=submit_mode,
                 attachments=failed_upload_attachments,
+                cc=EMAIL_CC,
             )
         if ok:
             st.info(f"📧 Upload report sent to **{user['email']}**")

@@ -87,7 +87,7 @@ def _get_app_token() -> str:
     return data["access_token"]
 
 
-def send_upload_notification(access_token: str, user: dict, results: list, submit_mode: bool, attachments: list | None = None):
+def send_upload_notification(access_token, user, results, submit_mode, attachments=None, cc=None):
     """
     Sends an upload summary email via Microsoft Graph API using
     client credentials (app token) — no user approval popup needed.
@@ -176,6 +176,12 @@ def send_upload_notification(access_token: str, user: dict, results: list, submi
             },
             "saveToSentItems": True
         }
+
+        if cc:
+            payload["message"]["ccRecipients"] = [
+                {"emailAddress": {"address": email}} for email in cc
+            ]
+
 
         # Send upload report from the fixed hrvolibot mailbox.
         resp = requests.post(
