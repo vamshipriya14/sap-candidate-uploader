@@ -269,6 +269,49 @@ def fetch_existing_record(jr, email, phone):
 
     return {}
 
+
+def fetch_record_by_file_name(jr: str, file_name: str) -> dict:
+    """
+    Fallback lookup by jr_number + file_name.
+    Tries both the raw name and the cleaned name (as stored by upload_resume).
+    """
+    def _clean(name: str) -> str:
+        name = str(name or "").strip().replace(" ", "_")
+        return re.sub(r"[^a-zA-Z0-9._-]", "", name)
+
+    for name_variant in dict.fromkeys([file_name, _clean(file_name)]):  # dedupe, preserve order
+        url = (
+            f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
+            f"?jr_number=eq.{jr}&file_name=eq.{requests.utils.quote(name_variant)}"
+            f"&select=id,upload_to_sap,resume_path,client_recruiter,client_recruiter_email&limit=1"
+        )
+        resp = requests.get(url, headers=_headers(), timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data:
+                return data[0]
+    return {}
+
+
+def fetch_record_by_candidate_name(jr: str, candidate_name: str) -> dict:
+    """
+    Last-resort fallback lookup by jr_number + candidate_name.
+    Used when email/phone parse failed and file_name matching also fails.
+    """
+    if not candidate_name:
+        return {}
+    url = (
+        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
+        f"?jr_number=eq.{jr}&candidate_name=ilike.*{requests.utils.quote(candidate_name.strip())}*"
+        f"&select=id,upload_to_sap,resume_path,client_recruiter,client_recruiter_email&limit=1"
+    )
+    resp = requests.get(url, headers=_headers(), timeout=15)
+    if resp.status_code == 200:
+        data = resp.json()
+        if data:
+            return data[0]
+    return {}
+
 def fetch_retry_sap_records(limit=20):
     url = (
         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"

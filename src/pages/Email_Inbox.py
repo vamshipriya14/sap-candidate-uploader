@@ -28,12 +28,13 @@ from resume_repository import (
     _headers,
     fetch_active_jr_master,
     fetch_existing_record,
+    fetch_record_by_file_name,
+    fetch_record_by_candidate_name,
     insert_resume_record,
     jr_folder_name,
     upload_resume,
     SUPABASE_URL,
     SUPABASE_TABLE,
-
 )
 from sap_bot_headless import SAPBot
 from uploader import upload_to_sap
@@ -770,19 +771,15 @@ if process_all:
                     db_record = insert_resume_record(row_data, user, resume_path=resume_path)
                     db_record_id = str(db_record.get("id", "")).strip()
 
-                    # ── FIX: recover id when Supabase returns empty body
-                    #    (happens on merge-duplicate upserts) ──────────────
+                    # Supabase returns empty body on merge-duplicate upserts —
+                    # recover the id via email+phone lookup
                     if not db_record_id:
                         recovered = fetch_existing_record(
-                            jr_no,
-                            row_data["Email"],
-                            row_data["Phone"],
+                            jr_no, row_data["Email"], row_data["Phone"],
                         )
                         db_record_id = str(recovered.get("id", "")).strip() if recovered else ""
 
-                    # Ensure upload_to_sap = Pending and recruiter fields are
-                    # written even on the merge-duplicate path where insert
-                    # returns an empty body.
+                    # Guarantee Pending + recruiter fields written
                     if db_record_id:
                         try:
                             requests.patch(
@@ -800,7 +797,34 @@ if process_all:
 
                 except Exception as e:
                     if "23505" in str(e):
-                        st.warning("Duplicate detected after insert")
+                        # Hard unique-constraint duplicate — record exists but
+                        # email/phone lookup earlier returned nothing (parse mismatch).
+                        # Try fallbacks in order until we recover the real db_record_id.
+                        st.warning("Duplicate detected — recovering existing record ID…")
+
+                        # Fallback 1: email + phone
+                        recovered = fetch_existing_record(
+                            jr_no, row_data["Email"], row_data["Phone"],
+                        )
+                        # Fallback 2: jr_number + file_name (raw + cleaned variant)
+                        if not recovered:
+                            recovered = fetch_record_by_file_name(jr_no, file_name)
+                        # Fallback 3: jr_number + candidate_name (partial ilike match)
+                        if not recovered:
+                            recovered = fetch_record_by_candidate_name(jr_no, candidate_name)
+
+                        if recovered:
+                            db_record_id = str(recovered.get("id", "")).strip()
+                            existing_status = str(recovered.get("upload_to_sap", "")).strip().lower()
+                            resume_path = recovered.get("resume_path", "") or resume_path
+                            st.info(f"🔁 Recovered duplicate record → {db_record_id}")
+                        else:
+                            st.error(
+                                f"❌ Could not recover record for {cand_label} — "
+                                f"skipping SAP upload to avoid double submission."
+                            )
+                            results_log.append({"File": file_name, "Status": "Duplicate — ID not recovered"})
+                            continue
                     else:
                         st.error(f"DB insert failed: {e}")
                         continue
@@ -828,6 +852,7 @@ if process_all:
             sap_error = ""
 
             NON_CRITICAL_SAP_ERRORS = ["requisition id", "not found in job list"]
+            DEAD_SESSION_ERRORS = ["invalid session id", "no such session", "disconnected"]
 
             for attempt in range(2):
                 try:
@@ -852,12 +877,27 @@ if process_all:
                     sap_error = str(e)
 
                     if any(err in sap_error.lower() for err in NON_CRITICAL_SAP_ERRORS):
-                        # ── Non-critical: mark as skipped and stop retrying ──
                         sap_status = "Skipped"
                         st.warning(f"⚠️ SAP skipped (non-critical): {sap_error}")
-                        break  # don't retry; don't screenshot
+                        break
 
-                    # Real failure — capture screenshot and retry once
+                    # Dead Selenium session — restart bot before retrying
+                    if any(err in sap_error.lower() for err in DEAD_SESSION_ERRORS):
+                        st.warning(f"⚠️ SAP session died (attempt {attempt + 1}) — restarting bot…")
+                        try:
+                            bot.quit()
+                        except Exception:
+                            pass
+                        try:
+                            bot = start_sap_bot()
+                            st.info("🔄 SAP bot restarted.")
+                        except Exception as restart_err:
+                            st.error(f"Bot restart failed: {restart_err}")
+                            bot = None
+                            break  # no point retrying with no bot
+                        continue  # retry with fresh session
+
+                    # Real failure — capture screenshot
                     try:
                         screenshot_name = f"{jr_no}_{cand_label}_attempt{attempt + 1}"
                         screenshot_path = bot._screenshot(screenshot_name)
