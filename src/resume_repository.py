@@ -1,11 +1,10 @@
 import re
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta  # 🔴 Fix #2: added timedelta
 
 import requests
 import streamlit as st
 from dotenv import load_dotenv
-from streamlit.errors import StreamlitSecretNotFoundError
 
 load_dotenv()
 
@@ -42,20 +41,16 @@ BUCKET = "resumes"
 def _now_iso():
     return datetime.now(timezone.utc).isoformat()
 
-def _supabase_headers() -> dict:
+
+# 🔴 Fix #4: Single consolidated header function used everywhere
+def _headers(json: bool = True) -> dict:
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise Exception("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
     return {
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "return=representation",
-    }
-def _headers(json=True):
-    return {
-        "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json" if json else "application/octet-stream",
-        "apikey": SUPABASE_KEY,
+        "Prefer": "return=representation",
     }
 
 
@@ -75,15 +70,41 @@ def _candidate_name(row: dict) -> str:
 
 
 # ─────────────────────────────────────────────
+# 🏗️ DB PAYLOAD BUILDER
+# ─────────────────────────────────────────────
+# 🔴 Fix #1: Extracted _resume_db_payload so update_resume_record can call it
+def _resume_db_payload(row: dict, user: dict, resume_link: str | None = None) -> dict:
+    payload = {
+        "jr_number": str(row.get("JR Number", "")).strip(),
+        "date_text": str(row.get("Date", "")).strip(),
+        "skill": str(row.get("Skill", "")).strip(),
+        "file_name": str(row.get("File Name", "")).strip(),
+        "resume_path": resume_link,
+        "first_name": str(row.get("First Name", "")).strip(),
+        "last_name": str(row.get("Last Name", "")).strip(),
+        "candidate_name": _candidate_name(row),
+        "email": str(row.get("Email", "")).strip(),
+        "phone": str(row.get("Phone", "")).strip(),
+        "created_at": _now_iso(),
+        "recruiter": user.get("name", ""),
+        "recruiter_email": user.get("email", ""),
+    }
+    # remove empty / None values
+    return {k: v for k, v in payload.items() if v not in ("", None)}
+
+
+# ─────────────────────────────────────────────
 # 📤 UPLOAD TO SUPABASE STORAGE
 # ─────────────────────────────────────────────
+# 🟡 Fix #5: Keep original filename; use hash only as a dedup check prefix
 def upload_resume(file_name: str, content: bytes, jr_number: str) -> str:
-    file_hash = hashlib.md5(content).hexdigest()
-    ext = file_name.split(".")[-1]
-    safe_name = f"{file_hash}.{ext}"
+    file_hash = hashlib.md5(content).hexdigest()[:8]
+    safe_original = _clean_file_name(file_name)
+    # e.g. "abc12345_John_Doe_Resume.pdf" — unique but still human-readable
+    storage_name = f"{file_hash}_{safe_original}"
 
     folder = jr_folder_name(jr_number)
-    file_path = f"{folder}/{safe_name}"
+    file_path = f"{folder}/{storage_name}"
 
     url = f"{SUPABASE_URL}/storage/v1/object/{BUCKET}/{file_path}"
 
@@ -130,7 +151,7 @@ def delete_resume(file_path: str):
 # ─────────────────────────────────────────────
 # 🧹 CLEANUP (30 DAYS)
 # ─────────────────────────────────────────────
-def cleanup_old_resumes(days=30):
+def cleanup_old_resumes(days: int = 30):
     list_url = f"{SUPABASE_URL}/storage/v1/object/list/{BUCKET}"
 
     resp = requests.post(
@@ -155,36 +176,19 @@ def cleanup_old_resumes(days=30):
 
         created_time = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
 
-        if now - created_time > timedelta(days=days):
+        if now - created_time > timedelta(days=days):  # 🔴 Fix #2: timedelta now imported
             delete_resume(name)
 
 
 # ─────────────────────────────────────────────
 # 💾 DB INSERT
 # ─────────────────────────────────────────────
-def insert_resume_record(row: dict, user: dict, resume_link=None) -> dict:
-    payload = {
-        "jr_number": str(row.get("JR Number", "")).strip(),
-        "date_text": str(row.get("Date", "")).strip(),
-        "skill": str(row.get("Skill", "")).strip(),
-        "file_name": str(row.get("File Name", "")).strip(),
-        "resume_path": resume_link,
-        "first_name": str(row.get("First Name", "")).strip(),
-        "last_name": str(row.get("Last Name", "")).strip(),
-        "candidate_name": _candidate_name(row),
-        "email": str(row.get("Email", "")).strip(),
-        "phone": str(row.get("Phone", "")).strip(),
-        "created_at": _now_iso(),
-        "recruiter": user.get("name", ""),
-        "recruiter_email": user.get("email", ""),
-    }
-
-    # remove empty values
-    payload = {k: v for k, v in payload.items() if v not in ("", None)}
+def insert_resume_record(row: dict, user: dict, resume_link: str | None = None) -> dict:
+    payload = _resume_db_payload(row, user, resume_link=resume_link)
 
     resp = requests.post(
         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}",
-        headers={**_headers(), "Prefer": "return=representation"},
+        headers=_headers(),
         json=payload,
         timeout=30,
     )
@@ -196,42 +200,14 @@ def insert_resume_record(row: dict, user: dict, resume_link=None) -> dict:
 
 
 # ─────────────────────────────────────────────
-# 📊 FETCH
+# ✏️ DB UPDATE
 # ─────────────────────────────────────────────
-def fetch_all_resume_records():
-    resp = requests.get(
-        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?select=*",
-        headers=_headers(),
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-# ─────────────────────────────────────────────
-# Download
-# ─────────────────────────────────────────────
-
-def download_resume(file_path: str) -> bytes:
-    # Step 1: get signed URL
-    signed_url = get_resume_url(file_path)
-
-    if not signed_url:
-        raise Exception("Failed to generate signed URL")
-
-    # Step 2: download file
-    resp = requests.get(signed_url, timeout=30)
-
-    if resp.status_code != 200:
-        raise Exception(f"Download failed: {resp.text}")
-
-    return resp.content
-
-
+# 🔴 Fix #1: update_resume_record now calls _resume_db_payload (no longer broken)
 def update_resume_record(record_id: str, row: dict, user: dict, resume_link: str | None = None) -> dict:
     payload = _resume_db_payload(row, user, resume_link=resume_link)
     response = requests.patch(
         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{record_id}",
-        headers=_supabase_headers(),
+        headers=_headers(),
         json=payload,
         timeout=30,
     )
@@ -241,10 +217,11 @@ def update_resume_record(record_id: str, row: dict, user: dict, resume_link: str
         return payload
     return records[0]
 
+
 def update_resume_record_fields(record_id: str, fields: dict) -> dict:
     response = requests.patch(
         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{record_id}",
-        headers=_supabase_headers(),
+        headers=_headers(),
         json=fields,
         timeout=30,
     )
@@ -254,28 +231,61 @@ def update_resume_record_fields(record_id: str, fields: dict) -> dict:
         return fields
     return records[0]
 
+
+# ─────────────────────────────────────────────
+# 📊 FETCH
+# ─────────────────────────────────────────────
+def fetch_all_resume_records() -> list[dict]:
+    resp = requests.get(
+        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?select=*",
+        headers=_headers(),
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+# ─────────────────────────────────────────────
+# ⬇️ DOWNLOAD
+# ─────────────────────────────────────────────
+def download_resume(file_path: str) -> bytes:
+    signed_url = get_resume_url(file_path)
+
+    if not signed_url:
+        raise Exception("Failed to generate signed URL")
+
+    resp = requests.get(signed_url, timeout=30)
+
+    if resp.status_code != 200:
+        raise Exception(f"Download failed: {resp.text}")
+
+    return resp.content
+
+
+# ─────────────────────────────────────────────
+# 🏢 JR MASTER
+# ─────────────────────────────────────────────
 def fetch_active_jr_master() -> list[dict]:
     response = requests.get(
-        f"{SUPABASE_URL}/rest/v1/jr_master?select=jr_no,client_recruiter,recruiter_email,skill_name,jr_status",
-        headers=_supabase_headers(),
+        f"{SUPABASE_URL}/rest/v1/jr_master"
+        "?select=jr_no,client_recruiter,recruiter_email,skill_name,jr_status",
+        headers=_headers(),
         timeout=30,
     )
     response.raise_for_status()
     rows = response.json()
-    active_rows = []
-    for row in rows:
-        status = str(row.get("jr_status", "")).strip().lower()
-        if status == "active":
-            active_rows.append(row)
-    return active_rows
+    return [r for r in rows if str(r.get("jr_status", "")).strip().lower() == "active"]
 
 
+# ─────────────────────────────────────────────
+# 📧 EMAIL HELPERS
+# ─────────────────────────────────────────────
 def fetch_unsent_email_records() -> list[dict]:
     """Fetch records where SAP upload is Done and client email has not been sent."""
     response = requests.get(
         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
         "?upload_to_sap=eq.Done&client_email_sent=eq.No&select=*",
-        headers=_supabase_headers(),
+        headers=_headers(),
         timeout=30,
     )
     response.raise_for_status()
@@ -289,19 +299,24 @@ def mark_client_email_sent(record_ids: list[str]) -> None:
     ids_str = ",".join(record_ids)
     response = requests.patch(
         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=in.({ids_str})",
-        headers=_supabase_headers(),
+        headers=_headers(),
         json={"client_email_sent": "Yes"},
         timeout=30,
     )
     response.raise_for_status()
 
+
+# ─────────────────────────────────────────────
+# ✍️ SIGNATURES
+# ─────────────────────────────────────────────
 def get_user_signature(email: str) -> str:
     """Retrieves the stored signature for a user."""
     if not email:
         return ""
     response = requests.get(
-        f"{SUPABASE_URL}/rest/v1/recruiter_signatures?user_email=eq.{email}&select=signature",
-        headers=_supabase_headers(),
+        f"{SUPABASE_URL}/rest/v1/recruiter_signatures"
+        f"?user_email=eq.{email}&select=signature",
+        headers=_headers(),
         timeout=10,
     )
     if response.status_code == 200:
@@ -321,7 +336,7 @@ def save_user_signature(email: str, signature: str) -> None:
     }
     response = requests.post(
         f"{SUPABASE_URL}/rest/v1/recruiter_signatures",
-        headers={**_supabase_headers(), "Prefer": "resolution=merge-duplicates"},
+        headers={**_headers(), "Prefer": "resolution=merge-duplicates"},
         json=payload,
         timeout=10,
     )

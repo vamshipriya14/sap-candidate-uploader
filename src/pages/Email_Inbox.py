@@ -25,14 +25,13 @@ from auth import require_login, show_navigation, show_user_profile
 from notifier import _get_app_token
 from resume_parser import parse_resume
 from resume_repository import (
-    _supabase_headers,
+    _headers,
     fetch_active_jr_master,
     insert_resume_record,
     jr_folder_name,
     upload_resume,
     SUPABASE_URL,
     SUPABASE_TABLE,
-    HRVOLIBOT_ROOT_FOLDER,
 )
 from sap_bot_headless import SAPBot
 from uploader import upload_to_sap
@@ -63,7 +62,7 @@ st.title("📬 Email Inbox — Auto Resume Processor")
 st.caption(
     f"Reads **{INBOX_EMAIL}** for emails with subject starting with "
     f"`{SUBJECT_PREFIX}`, downloads attachments → uploads to "
-    f"**hrvolibot OneDrive / {HRVOLIBOT_ROOT_FOLDER}/<JR>/** → parses → SAP."
+    f"**<JR>/** → parses → SAP."
 )
 
 # ─────────────────────────────────────────────────────────────

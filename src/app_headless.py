@@ -377,7 +377,7 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
 
         if record_id and record_id != "PENDING":
             if st.session_state.resume_row_snapshots.get(file_name) != snapshot:
-                update_resume_record(record_id, merged_row_dict, user, resume_link=current_link)
+                update_resume_record(record_id, merged_row_dict, user, resume_path=current_link)
                 st.session_state.resume_row_snapshots[file_name] = snapshot
                 st.session_state.resume_committed_jr[file_name] = str(merged_row_dict.get("JR Number", "")).strip()
         else:
@@ -385,7 +385,7 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
                 merged_row_dict.setdefault("client_email_sent", "No")
                 if str(merged_row_dict.get("client_email_sent", "No")).strip() not in ("Yes", "No"):
                     merged_row_dict["client_email_sent"] = "No"
-                record = insert_resume_record(merged_row_dict, user, resume_link=current_link)
+                record = insert_resume_record(merged_row_dict, user, resume_path=current_link)
                 new_id = str(record.get("id", "")).strip()
                 st.session_state.resume_record_ids[file_name] = new_id
                 st.session_state.resume_row_snapshots[file_name] = snapshot
@@ -854,7 +854,7 @@ if not db_df.empty:
         "call_iteration": "Call Iteration",
         "comments_availability": "comments/Availability",
         "error_message": "Error",
-        "resume_link": "resume_link",
+        "resume_path": "resume_path",
         "client_recruiter": "client_recruiter",
         "client_recruiter_email": "client_recruiter_email",
         "recruiter": "recruiter",
@@ -970,7 +970,7 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
 
                     if original_record:
                         st.session_state.resume_record_ids[file_name] = str(original_record.get("id", ""))
-                        _stored_link = str(original_record.get("resume_link", "") or "").strip()
+                        _stored_link = str(original_record.get("resume_path", "") or "").strip()
                         if _stored_link:
                             st.session_state.resume_paths[file_name] = _stored_link
 
@@ -989,7 +989,7 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
                     st.session_state.parsed_resume_rows[file_name] = row_data
                     st.session_state.resume_row_snapshots[file_name] = _row_snapshot(row_data)
                     st.session_state.resume_committed_jr[file_name] = str(row_data.get("JR Number", "") or row_data.get("jr_number", "") or "").strip()
-                    _rl = str(row_data.get("resume_link", "") or "").strip()
+                    _rl = str(row_data.get("resume_path", "") or "").strip()
                     if _rl and file_name not in st.session_state.resume_paths:
                         st.session_state.resume_paths[file_name] = _rl
 
@@ -1289,7 +1289,7 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                             record_id,
                             updated_row,
                             user,
-                            resume_link=st.session_state.resume_paths.get(file_name, ""),
+                            resume_path=st.session_state.resume_paths.get(file_name, ""),
                         )
                 results_log.append({"File": row["File Name"], "Status": "Success"})
                 successful_rows.append(row.to_dict())
@@ -1311,7 +1311,7 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                                     record_id,
                                     updated_row,
                                     user,
-                                    resume_link=st.session_state.resume_paths.get(file_name, ""),
+                                    resume_path=st.session_state.resume_paths.get(file_name, ""),
                                 )
 
                         candidate_name = " ".join(
