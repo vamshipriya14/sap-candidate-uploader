@@ -9,13 +9,13 @@ from auth import require_login, show_navigation, show_user_profile
 from notifier import send_upload_notification
 from resume_parser import parse_resume
 from resume_repository import (
-    delete_resume_from_shared_drive,
     fetch_active_jr_master,
     fetch_all_resume_records,
     insert_resume_record,
     jr_folder_name,
     update_resume_record,
-    upload_resume_to_shared_drive
+    upload_resume,
+    download_resume,
 )
 from sap_bot_headless import SAPBot
 from uploader import upload_to_sap
@@ -52,66 +52,6 @@ def _safe_merge(base: dict, incoming: dict) -> dict:
         else:
             result[key] = val
     return result
-
-
-def _download_sharepoint_file(resume_link: str, access_token: str, retries: int = 3) -> bytes:
-    """
-    Download a file from OneDrive/SharePoint via Microsoft Graph API.
-    Strategy 1: /me/drive/root:/{path}:/content  (personal OneDrive path)
-    Strategy 2: shares/{encode(url)}/driveItem/@microsoft.graph.downloadUrl
-                then fetch the pre-authenticated download URL (no auth needed)
-    Strategy 3: raw GET with Authorization header
-    """
-    headers = {"Authorization": f"Bearer {access_token}"}
-    last_exc = None
-
-    for attempt in range(retries):
-        try:
-            # Strategy 1: personal OneDrive path
-            personal_match = _re.search(
-                r"/personal/[^/]+/Documents/(.+)$", _up.unquote(resume_link)
-            )
-            if personal_match:
-                relative_path = personal_match.group(1)
-                encoded_path  = _up.quote(relative_path)
-                graph_url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_path}:/content"
-                resp = requests.get(graph_url, headers=headers, timeout=30, allow_redirects=True)
-                if resp.status_code == 200:
-                    return resp.content
-
-            # Strategy 2: get a pre-authenticated download URL via shares endpoint
-            try:
-                share_token = "u!" + base64.urlsafe_b64encode(
-                    resume_link.encode("utf-8")
-                ).decode("utf-8").rstrip("=")
-                meta_url = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem"
-                meta_resp = requests.get(
-                    meta_url,
-                    headers={**headers, "Prefer": "redeemSharingLink"},
-                    params={"$select": "@microsoft.graph.downloadUrl"},
-                    timeout=30,
-                )
-                if meta_resp.status_code == 200:
-                    dl_url = meta_resp.json().get("@microsoft.graph.downloadUrl", "")
-                    if dl_url:
-                        dl_resp = requests.get(dl_url, timeout=30, allow_redirects=True)
-                        if dl_resp.status_code == 200:
-                            return dl_resp.content
-            except Exception:
-                pass
-
-            # Strategy 3: raw GET with auth header
-            resp = requests.get(resume_link, headers=headers, timeout=30, allow_redirects=True)
-            if resp.status_code == 200:
-                return resp.content
-
-            raise Exception(f"HTTP {resp.status_code} for {resume_link}")
-
-        except Exception as exc:
-            last_exc = exc
-            time.sleep(2 * (attempt + 1))
-
-    raise Exception(f"Download failed after {retries} attempts: {last_exc}")
 
 
 def normalize_upload_error(error: Exception) -> str:
@@ -396,18 +336,23 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
                 unique_keys[current_key] = "PENDING"
 
         jr_folder = jr_folder_name(jr_number)
-        current_link = st.session_state.resume_links.get(file_name, "")
+        current_link = st.session_state.resume_paths.get(file_name, "")
 
-        if f"/{jr_folder}/" not in current_link:
+        from resume_repository import delete_resume
+
+        if not current_link.startswith(f"{jr_folder}/"):
             file_bytes = st.session_state.uploaded_files_store.get(file_name)
+
             if file_bytes:
-                previous_folder = "pending_jr" if "/pending_jr/" in current_link else ""
-                resume_link = upload_resume_to_shared_drive(user["access_token"], file_name, file_bytes,
-                                                            subfolder=jr_folder)
-                st.session_state.resume_links[file_name] = resume_link
-                if previous_folder and previous_folder != jr_folder:
-                    delete_resume_from_shared_drive(user["access_token"], file_name, previous_folder)
-                current_link = resume_link
+                old_path = current_link
+
+                resume_path = upload_resume(file_name, file_bytes, jr_number)
+
+                st.session_state.resume_paths[file_name] = resume_path
+
+                # 🔥 delete old pending file
+                if old_path:
+                    delete_resume(old_path)
 
         # Merge protected fields from session state before computing snapshot/saving.
         # edited_df never carries these columns so they arrive as NaN in row_dict.
@@ -564,8 +509,8 @@ if "resume_record_ids" not in st.session_state:
     st.session_state.resume_record_ids = {}
 if "resume_row_snapshots" not in st.session_state:
     st.session_state.resume_row_snapshots = {}
-if "resume_links" not in st.session_state:
-    st.session_state.resume_links = {}
+if "resume_paths" not in st.session_state:
+    st.session_state.resume_paths = {}
 if "resume_committed_jr" not in st.session_state:
     st.session_state.resume_committed_jr = {}
 if "db_resume_records" not in st.session_state:
@@ -739,11 +684,13 @@ with _parse_col:
 if files:
     seen = set()
     unique_files = []
+
     for file in files:
-        if file.name in seen:
-            st.warning(f"Duplicate file skipped: **{file.name}**")
+        file_name = file.name
+        if file_name in seen:
+            st.warning(f"Duplicate file skipped: **{file_name}**")
         else:
-            seen.add(file.name)
+            seen.add(file_name)
             unique_files.append(file)
     files = unique_files
     current_signature = tuple(sorted(file.name for file in files))
@@ -760,16 +707,17 @@ if files:
     today_text = date.today().strftime("%d-%b-%Y")
 
     for index, file in enumerate(files):
+        file_name = file.name
         file.seek(0)
         file_bytes = file.read()
         st.session_state.uploaded_files_store[file.name] = file_bytes
 
-        if file.name not in st.session_state.parsed_resume_rows:
+        if file_name not in st.session_state.parsed_resume_rows:
             row = {
                 "JR Number": "",
                 "Date": today_text,
                 "Skill": "",
-                "File Name": file.name,
+                "File Name": file_name,
                 "First Name": "",
                 "Last Name": "",
                 "Email": "",
@@ -814,21 +762,18 @@ if files:
                 row["Error"] = str(error)
 
             try:
-                resume_link = upload_resume_to_shared_drive(
-                    user["access_token"],
-                    file.name,
-                    file_bytes,
-                    subfolder=jr_folder_name(""),
-                )
-                st.session_state.resume_links[file.name] = resume_link
+                jr_number = str(row.get("JR Number", "")).strip()
+
+                resume_path = upload_resume(file_name, file_bytes, jr_number)
+
+                st.session_state.resume_paths[file_name] = resume_path
             except Exception as error:
                 _od_err = str(error).strip()
                 row["Error"] = f"{row['Error']} | {_od_err}".strip(" |")
-                st.warning(f"OneDrive upload failed for **{file.name}**: {_od_err}")
-
-            st.session_state.resume_row_snapshots[file.name] = _row_snapshot(row)
-            st.session_state.parsed_resume_rows[file.name] = row
-            st.session_state.resume_committed_jr[file.name] = ""
+                st.warning(f"Supabase upload failed for **{file_name}**: {_od_err}")
+            st.session_state.resume_row_snapshots[file_name] = _row_snapshot(row)
+            st.session_state.parsed_resume_rows[file_name] = row
+            st.session_state.resume_committed_jr[file_name] = ""
 
         progress.progress((index + 1) / len(files))
 
@@ -1028,7 +973,7 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
                         st.session_state.resume_record_ids[file_name] = str(original_record.get("id", ""))
                         _stored_link = str(original_record.get("resume_link", "") or "").strip()
                         if _stored_link:
-                            st.session_state.resume_links[file_name] = _stored_link
+                            st.session_state.resume_paths[file_name] = _stored_link
 
                     row_data = row.to_dict()
                     row_data.pop("Select", None)
@@ -1046,8 +991,8 @@ with st.expander("Searchable Database Records - Add to Main Table", expanded=Fal
                     st.session_state.resume_row_snapshots[file_name] = _row_snapshot(row_data)
                     st.session_state.resume_committed_jr[file_name] = str(row_data.get("JR Number", "") or row_data.get("jr_number", "") or "").strip()
                     _rl = str(row_data.get("resume_link", "") or "").strip()
-                    if _rl and file_name not in st.session_state.resume_links:
-                        st.session_state.resume_links[file_name] = _rl
+                    if _rl and file_name not in st.session_state.resume_paths:
+                        st.session_state.resume_paths[file_name] = _rl
 
                 st.success(f"Added {len(selected_rows)} record(s) to the table below.")
                 st.rerun()
@@ -1162,7 +1107,7 @@ with _cl_col:
         st.session_state.parsed_resume_rows = {}
         st.session_state.resume_record_ids = {}
         st.session_state.resume_row_snapshots = {}
-        st.session_state.resume_links = {}
+        st.session_state.resume_paths = {}
         st.session_state.resume_committed_jr = {}
         st.session_state.uploaded_files_store = {}
         clear_pending_upload_state()
@@ -1257,16 +1202,21 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
         status_box.info("Downloading resume files...")
         for _, _pre_row in upload_rows.iterrows():
             _pre_fname = str(_pre_row.get("File Name", "")).strip()
+
             if not _pre_fname:
                 continue
+
             if st.session_state.uploaded_files_store.get(_pre_fname):
                 continue
-            _pre_link = st.session_state.resume_links.get(_pre_fname)
-            if not _pre_link:
+
+            resume_path = st.session_state.resume_paths.get(_pre_fname)
+
+            if not resume_path:
                 continue
+
             try:
-                _pre_bytes = _download_sharepoint_file(_pre_link, user["access_token"])
-                st.session_state.uploaded_files_store[_pre_fname] = _pre_bytes
+                file_bytes = download_resume(resume_path)
+                st.session_state.uploaded_files_store[_pre_fname] = file_bytes
             except Exception as _pre_exc:
                 st.warning(f"Pre-download failed for {_pre_fname}: {_pre_exc}")
 
@@ -1283,12 +1233,16 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                     metadata_by_jr[jr_number] = bot.get_job_email_details(jr_number)
 
                 file_name = str(row.get("File Name", "")).strip()
+
                 file_bytes = st.session_state.uploaded_files_store.get(file_name)
+
                 if not file_bytes:
-                    resume_link = st.session_state.resume_links.get(file_name)
-                    if not resume_link:
-                        raise Exception("File bytes not found in session and no resume link available")
-                    file_bytes = _download_sharepoint_file(resume_link, user["access_token"])
+                    resume_path = st.session_state.resume_paths.get(file_name)
+
+                    if not resume_path:
+                        raise Exception("Resume path not found")
+
+                    file_bytes = download_resume(resume_path)
                     st.session_state.uploaded_files_store[file_name] = file_bytes
 
                 file_obj = io.BytesIO(file_bytes)
@@ -1336,7 +1290,7 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                             record_id,
                             updated_row,
                             user,
-                            resume_link=st.session_state.resume_links.get(file_name, ""),
+                            resume_link=st.session_state.resume_paths.get(file_name, ""),
                         )
                 results_log.append({"File": row["File Name"], "Status": "Success"})
                 successful_rows.append(row.to_dict())
@@ -1358,7 +1312,7 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                                     record_id,
                                     updated_row,
                                     user,
-                                    resume_link=st.session_state.resume_links.get(file_name, ""),
+                                    resume_link=st.session_state.resume_paths.get(file_name, ""),
                                 )
 
                         candidate_name = " ".join(

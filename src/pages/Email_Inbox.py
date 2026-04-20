@@ -29,7 +29,7 @@ from resume_repository import (
     fetch_active_jr_master,
     insert_resume_record,
     jr_folder_name,
-    upload_resume_to_hrvolibot_drive,
+    upload_resume,
     SUPABASE_URL,
     SUPABASE_TABLE,
     HRVOLIBOT_ROOT_FOLDER,
@@ -761,15 +761,13 @@ if process_all:
 
             # 1. Upload to hrvolibot OneDrive  →  Inbox Resumes/<JR>/<file>
             try:
-                resume_link = upload_resume_to_hrvolibot_drive(
-                    file_name, file_bytes, jr_no
-                )
+                resume_path = upload_resume(file_name, file_bytes, jr_no)
                 st.write(
-                    f"  ☁️ Uploaded to hrvolibot OneDrive: "
-                    f"`{HRVOLIBOT_ROOT_FOLDER}/{jr_folder_name(jr_no)}/{file_name}`"
+                    f"  ☁️ Uploaded to supabase resumes bucket: "
+                    f"`{jr_folder_name(jr_no)}/{file_name}`"
                 )
             except Exception as od_exc:
-                resume_link = ""
+                resume_path = ""
                 st.warning(f"  ⚠️ OneDrive upload failed: {od_exc}")
 
             # 2. Parse resume
@@ -824,7 +822,11 @@ if process_all:
             # 3. Insert into Supabase DB
             db_record_id = None
             try:
-                db_record = insert_resume_record(row_data, user, resume_link=resume_link)
+                db_record = insert_resume_record(
+                    row_data,
+                    user,
+                    resume_link=resume_path  # ✅ changed here
+                )
                 db_record_id = str(db_record.get("id", "")).strip()
                 st.write(f"  💾 Saved to DB (id: `{db_record_id}`)")
             except Exception as db_exc:
