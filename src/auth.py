@@ -37,7 +37,7 @@ def _secret(name: str, *fallback_names: str) -> str:
 CLIENT_ID = _secret("ST_AZURE_CLIENT_ID")
 CLIENT_SECRET = _secret("ST_AZURE_CLIENT_SECRET")
 TENANT_ID = _secret("ST_AZURE_TENANT_ID")
-REDIRECT_URI = _secret("ST_AZURE_REDIRECT_URI", default="http://localhost:8501")
+REDIRECT_URI = _secret("ST_AZURE_REDIRECT_URI", "http://localhost:8501")
 
 AUTH_URL = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authorize"
 TOKEN_URL = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
