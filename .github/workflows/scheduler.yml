@@ -23,23 +23,27 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Install Chromium
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser chromium-chromedriver
+
       - name: Run scheduler
         env:
-          PYTHONPATH: ${{ github.workspace }}/src
-
-          SUPABASE_URL:             ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY:             ${{ secrets.SUPABASE_KEY }}
-          SUPABASE_TABLE:           ${{ secrets.SUPABASE_TABLE }}
-          AZURE_TENANT_ID:          ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID:          ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET:      ${{ secrets.AZURE_CLIENT_SECRET }}
-          ONEDRIVE_SITE_ID:         ${{ secrets.ONEDRIVE_SITE_ID }}
-          SAP_URL:                  ${{ secrets.SAP_URL }}
-          SAP_USERNAME:             ${{ secrets.SAP_USERNAME }}
-          SAP_PASSWORD:             ${{ secrets.SAP_PASSWORD }}
-          EMAIL_CC:                 ${{ secrets.EMAIL_CC }}
-          SCHEDULER_SUBMIT_TO_SAP:  'false'
-          SCHEDULER_USER_EMAIL:     ${{ secrets.INBOX_EMAIL }}
-          SCHEDULER_MAX_MESSAGES:   '25'
-          INBOX_EMAIL:              ${{ secrets.INBOX_EMAIL }}
+          PYTHONPATH:                ${{ github.workspace }}/src
+          INBOX_EMAIL:               ${{ secrets.INBOX_EMAIL }}
+          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_TABLE:            ${{ secrets.SUPABASE_RESUME_TABLE }}
+          AZURE_TENANT_ID:           ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID:           ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET:       ${{ secrets.AZURE_CLIENT_SECRET }}
+          SAP_COMPANY_ID:            ${{ secrets.SAP_COMPANY_ID }}
+          SAP_AGENCY_ID:             ${{ secrets.SAP_AGENCY_ID }}
+          SAP_EMAIL:                 ${{ secrets.SAP_EMAIL }}
+          SAP_PASSWORD:              ${{ secrets.SAP_PASSWORD }}
+          EMAIL_CC:                  ${{ secrets.EMAIL_CC }}
+          SCHEDULER_SUBMIT_TO_SAP:   'true'
+          SCHEDULER_USER_EMAIL:      ${{ secrets.INBOX_EMAIL }}
+          SCHEDULER_MAX_MESSAGES:    '50'
         run: python scheduler.py
