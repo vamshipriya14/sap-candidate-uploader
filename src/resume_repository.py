@@ -217,3 +217,89 @@ def download_resume(file_path: str) -> bytes:
         raise Exception(f"Download failed: {resp.text}")
 
     return resp.content
+
+def update_resume_record_fields(record_id: str, fields: dict) -> dict:
+    response = requests.patch(
+        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{record_id}",
+        headers=_supabase_headers(),
+        json=fields,
+        timeout=30,
+    )
+    response.raise_for_status()
+    records = response.json()
+    if not records:
+        return fields
+    return records[0]
+
+def fetch_active_jr_master() -> list[dict]:
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/jr_master?select=jr_no,client_recruiter,recruiter_email,skill_name,jr_status",
+        headers=_supabase_headers(),
+        timeout=30,
+    )
+    response.raise_for_status()
+    rows = response.json()
+    active_rows = []
+    for row in rows:
+        status = str(row.get("jr_status", "")).strip().lower()
+        if status == "active":
+            active_rows.append(row)
+    return active_rows
+
+
+def fetch_unsent_email_records() -> list[dict]:
+    """Fetch records where SAP upload is Done and client email has not been sent."""
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
+        "?upload_to_sap=eq.Done&client_email_sent=eq.No&select=*",
+        headers=_supabase_headers(),
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def mark_client_email_sent(record_ids: list[str]) -> None:
+    """Mark the given record IDs as client_email_sent=Yes."""
+    if not record_ids:
+        return
+    ids_str = ",".join(record_ids)
+    response = requests.patch(
+        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=in.({ids_str})",
+        headers=_supabase_headers(),
+        json={"client_email_sent": "Yes"},
+        timeout=30,
+    )
+    response.raise_for_status()
+
+def get_user_signature(email: str) -> str:
+    """Retrieves the stored signature for a user."""
+    if not email:
+        return ""
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/recruiter_signatures?user_email=eq.{email}&select=signature",
+        headers=_supabase_headers(),
+        timeout=10,
+    )
+    if response.status_code == 200:
+        data = response.json()
+        if data:
+            return data[0].get("signature", "")
+    return ""
+
+
+def save_user_signature(email: str, signature: str) -> None:
+    if not email:
+        return
+    payload = {
+        "user_email": email,
+        "signature": signature,
+        "updated_at": _now_iso(),
+    }
+    response = requests.post(
+        f"{SUPABASE_URL}/rest/v1/recruiter_signatures",
+        headers={**_supabase_headers(), "Prefer": "resolution=merge-duplicates"},
+        json=payload,
+        timeout=10,
+    )
+    response.raise_for_status()
