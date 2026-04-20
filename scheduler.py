@@ -400,6 +400,7 @@ def run_pipeline() -> dict:
         return jr_master.get(jr_no, {})
 
     # ── 3. Fetch emails ───────────────────────────────────────
+
     try:
         messages = fetch_inbox_messages(token)
     except Exception as e:
@@ -438,16 +439,34 @@ def run_pipeline() -> dict:
 
     for msg in messages:
         msg_id   = msg.get("id", "")
+
         subject  = _safe(msg.get("subject"))
         from_email = _safe(msg.get("from", {}).get("emailAddress", {}).get("address"))
-
+        log.info(f"Processing msg_id={msg_id} subject={subject} isRead={msg.get('isRead')}")
         skill_from_subject = ""
         subj_match = re.match(r"profiles\s*-\s*bs:\s*(.+)", subject, re.IGNORECASE)
         if subj_match:
             skill_from_subject = subj_match.group(1).strip()
 
         log.info(f"--- Email: {subject} | From: {from_email}")
+        # Debug: log what check_already_processed actually finds
+        try:
+            debug_resp = requests.get(
+                f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
+                f"?source_email_id=eq.{msg_id}&select=id,upload_to_sap",
+                headers=_headers(),
+                timeout=15,
+            )
+            log.info(f"DB check for msg_id={msg_id}: status={debug_resp.status_code} records={debug_resp.json()}")
+        except Exception as e:
+            log.info(f"DB check failed: {e}")
 
+        already_done = check_already_processed(msg_id)
+        log.info(f"check_already_processed result = {already_done}")
+
+        if already_done:
+            log.info("Already processed — skipping.")
+            continue
         if check_already_processed(msg_id):
             log.info("Already processed — skipping.")
             continue
