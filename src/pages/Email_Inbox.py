@@ -494,19 +494,27 @@ if fetch_clicked:
         try:
             token = _app_token()
 
-            # ── Fetch raw inbox (unfiltered) for debug visibility ────────────────────
-            raw_url = (
-                f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/mailFolders/Inbox/messages"
-                f"?$top=20"
-                f"&$select=id,subject,receivedDateTime"
-                f"&$orderby=receivedDateTime desc"
+            # ── Fetch top 20 from Inbox + JunkEmail + clutter folders for debug ──────
+            def _fetch_folder_subjects(folder_id: str, label: str) -> list[str]:
+                url = (
+                    f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}"
+                    f"/mailFolders/{folder_id}/messages"
+                    f"?$top=10&$select=id,subject,receivedDateTime"
+                    f"&$orderby=receivedDateTime desc"
+                )
+                r = requests.get(url, headers=_graph_headers(token), timeout=20)
+                msgs = r.json().get("value", []) if r.status_code == 200 else []
+                return [
+                    f"[{label}] {m.get('receivedDateTime','')[:16].replace('T',' ')}  —  {m.get('subject','(no subject)')}"
+                    for m in msgs
+                ]
+
+            raw_subjects = (
+                _fetch_folder_subjects("Inbox", "Inbox")
+                + _fetch_folder_subjects("JunkEmail", "Junk")
+                + _fetch_folder_subjects("clutter", "Clutter")
             )
-            raw_resp = requests.get(raw_url, headers=_graph_headers(token), timeout=30)
-            raw_msgs = raw_resp.json().get("value", []) if raw_resp.status_code == 200 else []
-            st.session_state.inbox_raw_subjects = [
-                f"{m.get('receivedDateTime','')[:16].replace('T',' ')}  —  {m.get('subject','(no subject)')}"
-                for m in raw_msgs
-            ]
+            st.session_state.inbox_raw_subjects = raw_subjects
 
             # ── Now fetch filtered messages ────────────────────────────────────
             messages = fetch_inbox_messages(token, max_messages=50)
@@ -519,15 +527,19 @@ if fetch_clicked:
         except Exception as exc:
             st.error(f"Failed to fetch emails: {exc}")
 
-# ── Debug: show latest raw subjects from inbox ────────────────────────────
+# ── Debug: show raw subjects across folders ────────────────────────────
 if "inbox_raw_subjects" in st.session_state and st.session_state.inbox_raw_subjects:
-    with st.expander("🔍 Debug — Latest 20 subjects fetched from inbox (before filter)", expanded=True):
+    with st.expander("🔍 Debug — Latest subjects across Inbox / Junk / Clutter (before filter)", expanded=True):
         prefix_lower = SUBJECT_PREFIX.lower()
         for subj in st.session_state.inbox_raw_subjects:
             subj_text = subj.split("  —  ", 1)[-1] if "  —  " in subj else subj
             match = subj_text.lower().startswith(prefix_lower)
             icon = "✅" if match else "⬜"
             st.markdown(f"{icon} `{subj}`")
+        st.caption(
+            "✅ = subject matches `Profiles - BS:` prefix — "
+            "if your email shows here with ✅ but still not fetched, share this screenshot."
+        )
 
 messages = st.session_state.inbox_messages
 
