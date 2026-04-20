@@ -55,8 +55,20 @@ def _headers(json: bool = True) -> dict:
 
 
 def _clean_file_name(name: str) -> str:
-    return re.sub(r"[<>:\"/\\|?*]+", "_", str(name or "").strip())
+    import re
 
+    name = str(name or "").strip()
+
+    # Replace spaces
+    name = name.replace(" ", "_")
+
+    # Remove ALL unsafe characters (including [] ())
+    name = re.sub(r"[^a-zA-Z0-9._-]", "", name)
+
+    if not name:
+        name = "file"
+
+    return name
 
 def jr_folder_name(jr_number: str) -> str:
     return re.sub(r"[<>:\"/\\|?*]+", "_", str(jr_number or "").strip()) or "pending_jr"

@@ -703,7 +703,9 @@ if process_all:
 
             # 1. Upload to hrvolibot OneDrive  →  Inbox Resumes/<JR>/<file>
             try:
-                resume_path = upload_resume(file_name, file_bytes, jr_no)
+                jr_folder = jr_no if jr_no else "pending_jr"
+
+                resume_path = upload_resume(file_name, file_bytes, jr_folder)
                 st.write(
                     f"  ☁️ Uploaded to supabase resumes bucket: "
                     f"`{jr_folder_name(jr_no)}/{file_name}`"
