@@ -178,32 +178,46 @@ def fetch_inbox_messages(token: str, max_messages: int = 50) -> list[dict]:
     unique.sort(key=lambda m: m.get("receivedDateTime", ""), reverse=True)
     return unique
 def fetch_message_attachments(token: str, message_id: str) -> list[dict]:
-    """Return list of attachment dicts with name + contentBytes (decoded)."""
+    headers = _graph_headers(token)
+
+    # Step 1: Get attachment metadata
     url = (
         f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}"
         f"/messages/{message_id}/attachments"
-        f"?$select=name,contentBytes,contentType,size"
+        f"?$select=id,name,contentType,size"
     )
-    resp = requests.get(url, headers=_graph_headers(token), timeout=30)
+
+    resp = requests.get(url, headers=headers, timeout=30)
     resp.raise_for_status()
-    raw = resp.json().get("value", [])
 
     attachments = []
-    for att in raw:
+
+    for att in resp.json().get("value", []):
         name = _safe(att.get("name"))
-        content_b64 = att.get("contentBytes", "")
-        if not name or not content_b64:
+        att_id = att.get("id")
+
+        if not name or not att_id:
             continue
+
         ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
         if ext not in ("pdf", "docx", "doc"):
-            continue          # skip non-resume attachments
-        try:
-            content_bytes = base64.b64decode(content_b64)
-        except Exception:
             continue
-        attachments.append({"name": name, "bytes": content_bytes})
-    return attachments
 
+        # Step 2: Download actual content
+        content_url = (
+            f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}"
+            f"/messages/{message_id}/attachments/{att_id}/$value"
+        )
+
+        file_resp = requests.get(content_url, headers=headers, timeout=30)
+
+        if file_resp.status_code == 200:
+            attachments.append({
+                "name": name,
+                "bytes": file_resp.content
+            })
+
+    return attachments
 
 def mark_message_read(token: str, message_id: str) -> None:
     url = f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/messages/{message_id}"
