@@ -43,7 +43,7 @@ jobs:
           SAP_EMAIL:                 ${{ secrets.SAP_EMAIL }}
           SAP_PASSWORD:              ${{ secrets.SAP_PASSWORD }}
           EMAIL_CC:                  ${{ secrets.EMAIL_CC }}
-          SCHEDULER_SUBMIT_TO_SAP:   'true'
+          SCHEDULER_SUBMIT_TO_SAP:   'false'
           SCHEDULER_USER_EMAIL:      ${{ secrets.INBOX_EMAIL }}
           SCHEDULER_MAX_MESSAGES:    '50'
         run: python scheduler.py
