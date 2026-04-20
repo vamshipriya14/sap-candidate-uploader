@@ -42,7 +42,7 @@ CLIENT_SECRET = _secret("ST_AZURE_CLIENT_SECRET")
 TENANT_ID = _secret("ST_AZURE_TENANT_ID")
 REDIRECT_URI = _secret("ST_AZURE_REDIRECT_URI", default="http://localhost:8501")
 
-AUTH_URL  = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authorize"
+AUTH_URL = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authorize"
 TOKEN_URL = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
 
 # User-level sign-in plus OneDrive delegated upload scope.
@@ -55,7 +55,8 @@ SCOPE = "User.Read Files.ReadWrite openid profile email offline_access"
 # =========================
 def show_login_page():
     if not CLIENT_ID or not CLIENT_SECRET or not TENANT_ID or not REDIRECT_URI:
-        st.error("Missing Streamlit SSO secrets. Configure ST_AZURE_TENANT_ID, ST_AZURE_CLIENT_ID, ST_AZURE_CLIENT_SECRET, and ST_AZURE_REDIRECT_URI.")
+        st.error(
+            "Missing Streamlit SSO secrets. Configure ST_AZURE_TENANT_ID, ST_AZURE_CLIENT_ID, ST_AZURE_CLIENT_SECRET, and ST_AZURE_REDIRECT_URI.")
         st.stop()
 
     # -----------------------
@@ -150,23 +151,23 @@ def show_login_page():
 # =========================
 def _exchange_code_for_token(code: str) -> dict:
     resp = requests.post(TOKEN_URL, data={
-        "client_id":     CLIENT_ID,
+        "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
-        "scope":         SCOPE,
-        "code":          code,
-        "redirect_uri":  REDIRECT_URI,
-        "grant_type":    "authorization_code",
+        "scope": SCOPE,
+        "code": code,
+        "redirect_uri": REDIRECT_URI,
+        "grant_type": "authorization_code",
     })
     return resp.json()
 
 
 def _refresh_access_token(refresh_token: str) -> dict:
     resp = requests.post(TOKEN_URL, data={
-        "client_id":     CLIENT_ID,
+        "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
-        "scope":         SCOPE,
+        "scope": SCOPE,
         "refresh_token": refresh_token,
-        "grant_type":    "refresh_token",
+        "grant_type": "refresh_token",
     })
     return resp.json()
 
@@ -194,21 +195,21 @@ def _fetch_user(access_token: str) -> dict:
 
     # Fetch email signature - skip as it requires MailboxSettings.Read (Admin consent)
     signature = None
-    
+
     # Try to get phone
     phone = user.get("mobilePhone")
     if not phone and user.get("businessPhones"):
         phone = user.get("businessPhones")[0]
-    
+
     return {
-        "name":       user.get("displayName", ""),
-        "email":      user.get("mail") or user.get("userPrincipalName", ""),
-        "job_title":  user.get("jobTitle", ""),
+        "name": user.get("displayName", ""),
+        "email": user.get("mail") or user.get("userPrincipalName", ""),
+        "job_title": user.get("jobTitle", ""),
         "department": user.get("department", ""),
-        "office":     user.get("officeLocation", ""),
-        "phone":      phone or "",
-        "photo_b64":  photo_b64,
-        "signature":  signature,
+        "office": user.get("officeLocation", ""),
+        "phone": phone or "",
+        "photo_b64": photo_b64,
+        "signature": signature,
     }
 
 
@@ -224,24 +225,46 @@ def require_login() -> dict:
     # Already logged in this session
     if st.session_state.get("user"):
         user = st.session_state.user
-        # Check if token is about to expire (e.g. within 5 mins)
         expires_at = st.session_state.get("token_expires_at", 0)
         refresh_token = st.session_state.get("refresh_token")
-        
-        if time.time() > (expires_at - 300) and refresh_token:
-            # Try to refresh
+        last_refresh_attempt = st.session_state.get("last_refresh_attempt", 0)
+
+        now = time.time()
+
+        # Only attempt refresh when:
+        #   1. Token expires within 10 minutes
+        #   2. We have a refresh token
+        #   3. We haven't tried a refresh in the last 60 seconds (debounce)
+        #      — prevents hammering Azure on every Streamlit rerun
+        needs_refresh = (
+                refresh_token
+                and now > (expires_at - 600)  # 10 min before expiry
+                and now > (last_refresh_attempt + 60)  # debounce: max once per minute
+        )
+
+        if needs_refresh:
+            st.session_state.last_refresh_attempt = now  # mark attempt before calling
             token_data = _refresh_access_token(refresh_token)
+
             if "access_token" in token_data:
                 user["access_token"] = token_data["access_token"]
                 st.session_state.user = user
-                st.session_state.token_expires_at = time.time() + token_data.get("expires_in", 86400)
+                st.session_state.token_expires_at = now + token_data.get("expires_in", 3600)
                 if "refresh_token" in token_data:
                     st.session_state.refresh_token = token_data["refresh_token"]
             else:
-                # Refresh failed, clear session and force re-login
-                st.session_state.user = None
-                st.rerun()
-        
+                # ── Refresh failed: DO NOT log the user out immediately.
+                #    The existing access_token may still be valid for a while.
+                #    Only force re-login once the token is actually expired. ──
+                error = token_data.get("error", "")
+                if now > expires_at or error in ("invalid_grant", "interaction_required"):
+                    # Token is genuinely expired and unrefreshable — must re-login
+                    st.session_state.user = None
+                    st.session_state.refresh_token = None
+                    st.session_state.token_expires_at = 0
+                    st.rerun()
+                # else: token still valid, silently continue with existing token
+
         return user
 
     # OAuth callback — code in query params
@@ -260,6 +283,7 @@ def require_login() -> dict:
         st.session_state.user = user
         st.session_state.refresh_token = token_data.get("refresh_token")
         st.session_state.token_expires_at = time.time() + token_data.get("expires_in", 3600)
+        st.session_state.last_refresh_attempt = 0
 
         # Clean the code from URL so refresh doesn't re-exchange
         st.query_params.clear()
