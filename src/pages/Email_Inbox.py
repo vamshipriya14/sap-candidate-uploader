@@ -27,7 +27,7 @@ from resume_parser import parse_resume
 from resume_repository import (
     _headers,
     fetch_active_jr_master,
-    fetch_existing_record_id,
+    fetch_existing_record,
     insert_resume_record,
     jr_folder_name,
     upload_resume,
