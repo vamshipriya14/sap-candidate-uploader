@@ -148,7 +148,7 @@ def _pending_candidate_editor_key(selected_jr: str) -> str:
     return f"edp_candidates_editor_{selected_jr}"
 
 
-def _download_resume(access_token: str, resume_link: str, retries: int = 3) -> bytes | None:
+def _download_resume(access_token: str, resume_path: str, retries: int = 3) -> bytes | None:
     """
     Download a resume from OneDrive/SharePoint via Microsoft Graph API.
     Strategy 1: /me/drive/root:/{path}:/content  (personal OneDrive path)
@@ -159,7 +159,7 @@ def _download_resume(access_token: str, resume_link: str, retries: int = 3) -> b
     import re as _re
     import time as _time
 
-    if not resume_link:
+    if not resume_path:
         return None
 
     headers = {"Authorization": f"Bearer {access_token}"}
@@ -168,7 +168,7 @@ def _download_resume(access_token: str, resume_link: str, retries: int = 3) -> b
         try:
             # Strategy 1: personal OneDrive path
             personal_match = _re.search(
-                r"/personal/[^/]+/Documents/(.+)$", _up.unquote(resume_link)
+                r"/personal/[^/]+/Documents/(.+)$", _up.unquote(resume_path)
             )
             if personal_match:
                 relative_path = personal_match.group(1)
@@ -181,7 +181,7 @@ def _download_resume(access_token: str, resume_link: str, retries: int = 3) -> b
             # Strategy 2: pre-authenticated download URL via shares endpoint
             try:
                 share_token = "u!" + base64.urlsafe_b64encode(
-                    resume_link.encode("utf-8")
+                    resume_path.encode("utf-8")
                 ).decode("utf-8").rstrip("=")
                 meta_url = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem"
                 meta_resp = requests.get(
@@ -200,7 +200,7 @@ def _download_resume(access_token: str, resume_link: str, retries: int = 3) -> b
                 pass
 
             # Strategy 3: raw GET with auth header
-            resp = requests.get(resume_link, headers=headers, timeout=30, allow_redirects=True)
+            resp = requests.get(resume_path, headers=headers, timeout=30, allow_redirects=True)
             if resp.status_code == 200:
                 return resp.content
 
@@ -417,7 +417,7 @@ for rec in rows_for_jr:
         "Preferred Location": str(rec.get("preferred_location", "")),
         "comments/Availability": str(rec.get("comments_availability", "")),
         "_record_id": str(rec.get("id", "")),
-        "_resume_link": str(rec.get("resume_link", "")),
+        "_resume_path": str(rec.get("resume_path", "")),
     })
 
 # ── email form ────────────────────────────────────────────────────────────────
@@ -609,7 +609,7 @@ if st.button("Send Email", type="primary", use_container_width=True):
     with st.spinner("Preparing attachments..."):
         for rec in rows_for_jr:
             fname = str(rec.get("file_name", "")).strip()
-            link = str(rec.get("resume_link", "")).strip()
+            link = str(rec.get("resume_path", "")).strip()
             if not fname:
                 continue
             content = _download_resume(user["access_token"], link)

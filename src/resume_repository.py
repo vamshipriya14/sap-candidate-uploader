@@ -73,13 +73,13 @@ def _candidate_name(row: dict) -> str:
 # 🏗️ DB PAYLOAD BUILDER
 # ─────────────────────────────────────────────
 # 🔴 Fix #1: Extracted _resume_db_payload so update_resume_record can call it
-def _resume_db_payload(row: dict, user: dict, resume_link: str | None = None) -> dict:
+def _resume_db_payload(row: dict, user: dict, resume_path: str | None = None) -> dict:
     payload = {
         "jr_number": str(row.get("JR Number", "")).strip(),
         "date_text": str(row.get("Date", "")).strip(),
         "skill": str(row.get("Skill", "")).strip(),
         "file_name": str(row.get("File Name", "")).strip(),
-        "resume_path": resume_link,
+        "resume_path": resume_path,
         "first_name": str(row.get("First Name", "")).strip(),
         "last_name": str(row.get("Last Name", "")).strip(),
         "candidate_name": _candidate_name(row),
@@ -183,8 +183,8 @@ def cleanup_old_resumes(days: int = 30):
 # ─────────────────────────────────────────────
 # 💾 DB INSERT
 # ─────────────────────────────────────────────
-def insert_resume_record(row: dict, user: dict, resume_link: str | None = None) -> dict:
-    payload = _resume_db_payload(row, user, resume_link=resume_link)
+def insert_resume_record(row: dict, user: dict, resume_path: str | None = None) -> dict:
+    payload = _resume_db_payload(row, user, resume_path=resume_path)
 
     resp = requests.post(
         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}",
@@ -203,8 +203,8 @@ def insert_resume_record(row: dict, user: dict, resume_link: str | None = None) 
 # ✏️ DB UPDATE
 # ─────────────────────────────────────────────
 # 🔴 Fix #1: update_resume_record now calls _resume_db_payload (no longer broken)
-def update_resume_record(record_id: str, row: dict, user: dict, resume_link: str | None = None) -> dict:
-    payload = _resume_db_payload(row, user, resume_link=resume_link)
+def update_resume_record(record_id: str, row: dict, user: dict, resume_path: str | None = None) -> dict:
+    payload = _resume_db_payload(row, user, resume_path=resume_path)
     response = requests.patch(
         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{record_id}",
         headers=_headers(),

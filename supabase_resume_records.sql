@@ -24,7 +24,7 @@ create table if not exists public.candidates_submitted (
     call_iteration text not null default 'First Call',
     comments_availability text not null default '',
     error_message text not null default '',
-    resume_link text not null default '',
+    resume_path text not null default '',
     created_by text not null default '',
     created_at timestamptz not null default timezone('utc', now()),
     modified_by text not null default '',

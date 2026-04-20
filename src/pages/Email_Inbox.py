@@ -468,7 +468,7 @@ def check_already_processed(email_message_id: str) -> bool:
         resp = requests.get(
             f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
             f"?source_email_id=eq.{email_message_id}&select=id&limit=1",
-            headers=_supabase_headers(),
+            headers=_headers(),
             timeout=15,
         )
         if resp.status_code == 200 and resp.json():
@@ -773,7 +773,7 @@ if process_all:
                 )
             except Exception as od_exc:
                 resume_path = ""
-                st.warning(f"  ⚠️ OneDrive upload failed: {od_exc}")
+                st.warning(f"  ⚠️ DB resume upload failed: {od_exc}")
 
             # 2. Parse resume
             parsed = {}
@@ -830,7 +830,7 @@ if process_all:
                 db_record = insert_resume_record(
                     row_data,
                     user,
-                    resume_link=resume_path  # ✅ changed here
+                    resume_path=resume_path  # ✅ changed here
                 )
                 db_record_id = str(db_record.get("id", "")).strip()
                 st.write(f"  💾 Saved to DB (id: `{db_record_id}`)")
@@ -919,16 +919,22 @@ if process_all:
                         "upload_to_sap": sap_status,
                         "error_message": sap_error[:500] if sap_error else "",
                     }
-                    requests.patch(
+
+                    resp = requests.patch(
                         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{db_record_id}",
-                        headers=_supabase_headers(),
+                        headers=_headers(),  # ✅ FIXED
                         json=update_fields,
                         timeout=15,
                     )
-                    st.write(f"  📝 DB updated → `upload_to_sap = {sap_status}`")
+
+                    if resp.status_code not in (200, 204):
+                        st.warning(f"  ⚠️ DB update failed: {resp.text}")
+                    else:
+                        st.write(f"  📝 DB updated → upload_to_sap = {sap_status}")
+
                 except Exception as upd_exc:
                     st.warning(f"  ⚠️ DB status update failed: {upd_exc}")
-
+                    
             overall_log.append({
                 "Email": subject,
                 "Candidate": cand_label,
