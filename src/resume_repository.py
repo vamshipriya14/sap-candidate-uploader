@@ -186,9 +186,20 @@ def cleanup_old_resumes(days: int = 30):
 def insert_resume_record(row: dict, user: dict, resume_path: str | None = None) -> dict:
     payload = _resume_db_payload(row, user, resume_path=resume_path)
 
+    def normalize_email(email):
+        return email.strip().lower()
+
+    def normalize_phone(phone):
+        return re.sub(r"\D", "", phone)[-10:]  # last 10 digits
+    payload["email"] = normalize_email(payload["email"])
+    payload["phone"] = normalize_phone(payload["phone"])
+
     resp = requests.post(
         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}",
-        headers=_headers(),
+        headers={
+            **_headers(),
+            "Prefer": "resolution=merge-duplicates"
+        },
         json=payload,
         timeout=30,
     )
