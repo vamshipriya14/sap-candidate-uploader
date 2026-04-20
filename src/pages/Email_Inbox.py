@@ -22,7 +22,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from auth import require_login, show_navigation, show_user_profile
-from notifier import _get_app_token
+from notifier import _get_app_token, send_upload_notification
 from resume_parser import parse_resume
 from resume_repository import (
     _headers,
@@ -530,48 +530,6 @@ if fetch_clicked:
         try:
             token = _app_token()
 
-            # ── Scan Inbox + all subfolders for debug visibility ─────────────────
-            def _fetch_folder_subjects(folder_id: str, label: str) -> list[str]:
-                url = (
-                    f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}"
-                    f"/mailFolders/{folder_id}/messages"
-                    f"?$top=5&$select=id,subject,receivedDateTime"
-                    f"&$orderby=receivedDateTime desc"
-                )
-                r = requests.get(url, headers=_graph_headers(token), timeout=20)
-                msgs = r.json().get("value", []) if r.status_code == 200 else []
-                return [
-                    f"[{label}] {m.get('receivedDateTime','')[:16].replace('T',' ')}  —  {m.get('subject','(no subject)')}"
-                    for m in msgs
-                ]
-
-            # Show all inbox subfolders with counts
-            subfolders_resp = requests.get(
-                f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}"
-                f"/mailFolders/Inbox/childFolders?$top=50",
-                headers=_graph_headers(token), timeout=20
-            )
-            subfolders = subfolders_resp.json().get("value", []) if subfolders_resp.status_code == 200 else []
-            st.session_state.inbox_all_folders = (
-                ["[Inbox root]  (checking...)"]
-                + [
-                    f"[Inbox/{f.get('displayName','?')}]  "
-                    f"totalItems: {f.get('totalItemCount',0)}, unread: {f.get('unreadItemCount',0)}"
-                    for f in subfolders
-                ]
-            )
-
-            # Fetch latest subjects from Inbox root + every subfolder
-            raw_subjects = _fetch_folder_subjects("Inbox", "Inbox")
-            for f in subfolders:
-                fid = f.get("id", "")
-                fname = f.get("displayName", "")
-                if fid:
-                    raw_subjects += _fetch_folder_subjects(fid, f"Inbox/{fname}")
-
-            st.session_state.inbox_raw_subjects = raw_subjects
-
-            # ── Now fetch filtered messages ────────────────────────────────────
             messages = fetch_inbox_messages(token, max_messages=50)
             st.session_state.inbox_messages = messages
             st.session_state.inbox_last_fetched = datetime.now().strftime("%d %b %Y, %I:%M %p")
@@ -581,29 +539,6 @@ if fetch_clicked:
                 st.info("No matching emails found in inbox.")
         except Exception as exc:
             st.error(f"Failed to fetch emails: {exc}")
-
-# ── Debug: show all folders + raw subjects ────────────────────────────
-if "inbox_raw_subjects" in st.session_state or "inbox_all_folders" in st.session_state:
-    with st.expander("🔍 Debug — All mail folders + latest subjects (before filter)", expanded=True):
-
-        # Show all folders with counts
-        if st.session_state.get("inbox_all_folders"):
-            st.markdown("**📂 All mail folders found on this mailbox:**")
-            for folder_line in st.session_state.inbox_all_folders:
-                st.markdown(f" `{folder_line}`")
-            st.divider()
-
-        # Show subjects per folder
-        prefix_lower = SUBJECT_PREFIX.lower()
-        raw_subjects = st.session_state.get("inbox_raw_subjects", [])
-        if raw_subjects:
-            st.markdown("**📨 Latest 5 emails per folder:**")
-            for subj in raw_subjects:
-                subj_text = subj.split("  —  ", 1)[-1] if "  —  " in subj else subj
-                match = subj_text.lower().startswith(prefix_lower)
-                icon = "✅" if match else "⬜"
-                st.markdown(f"{icon} `{subj}`")
-        st.caption("✅ = matches `Profiles - BS:` prefix")
 
 messages = st.session_state.inbox_messages
 
@@ -660,6 +595,8 @@ if process_all:
     token = _app_token()
     today_text = date.today().strftime("%d-%b-%Y")
     overall_log = []
+    results_log = []          # for send_upload_notification (keys: File, Status)
+    failed_upload_attachments = []  # screenshots of SAP failures
     bot = None
 
     progress_bar = st.progress(0)
@@ -886,6 +823,7 @@ if process_all:
 
                     sap_status = "Done"
                     st.success(f"  ✅ SAP upload {'submitted' if submit_mode else 'dry-run'}: **{cand_label}**")
+                    results_log.append({"File": file_name, "Status": "Success"})
                     break
 
                 except Exception as sap_exc:
@@ -912,6 +850,24 @@ if process_all:
 
             if sap_status != "Done":
                 st.error(f"  ❌ SAP upload failed: {sap_error}")
+                # Capture a screenshot for the failure notification
+                if bot:
+                    try:
+                        screenshot_name = (
+                            f"{re.sub(r'[<>:\"/\\\\|?*]+', '_', jr_no or 'unknown_jr')}_"
+                            f"{re.sub(r'[<>:\"/\\\\|?*]+', '_', cand_label or 'candidate')}_failed_upload"
+                        )
+                        screenshot_path = bot._screenshot(screenshot_name)
+                        failed_upload_attachments.append({
+                            "name": f"{screenshot_name}.png",
+                            "content": screenshot_path.read_bytes(),
+                        })
+                    except Exception:
+                        pass
+                results_log.append({
+                    "File": file_name,
+                    "Status": sap_error[:120] if sap_error else "SAP upload failed",
+                })
             # 5. Update DB with SAP status
             if db_record_id:
                 try:
@@ -934,7 +890,7 @@ if process_all:
 
                 except Exception as upd_exc:
                     st.warning(f"  ⚠️ DB status update failed: {upd_exc}")
-                    
+
             overall_log.append({
                 "Email": subject,
                 "Candidate": cand_label,
@@ -970,6 +926,21 @@ if process_all:
         st.info("No candidates were processed.")
 
     st.session_state.inbox_processing_log = overall_log
+
+    # ── Send upload report email ──────────────────────────────────
+    if results_log:
+        with st.spinner("Sending upload report…"):
+            ok, msg = send_upload_notification(
+                access_token=user.get("access_token", ""),
+                user=user,
+                results=results_log,
+                submit_mode=submit_mode,
+                attachments=failed_upload_attachments,
+            )
+        if ok:
+            st.info(f"📧 Upload report sent to **{user['email']}**")
+        else:
+            st.warning(f"Upload report not sent: {msg}")
 
 # ── Show last run log if available ───────────────────────────
 elif st.session_state.inbox_processing_log:
