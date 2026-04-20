@@ -650,10 +650,10 @@ else:
     st.caption("🟡 Dry run mode — SAP form will be filled and cancelled.")
 
 process_all = st.button(
-    "⚡ Process All Emails → OneDrive → SAP",
+    "⚡ Process All Emails → Database → SAP",
     type="primary",
     use_container_width=True,
-    help="Downloads attachments, uploads to OneDrive, parses resumes, inserts into DB, uploads to SAP.",
+    help="Downloads attachments, uploads to Database, parses resumes, inserts into DB, uploads to SAP.",
 )
 
 if process_all:
@@ -665,11 +665,17 @@ if process_all:
     progress_bar = st.progress(0)
     status_box = st.empty()
 
-    try:
-        status_box.info("Connecting to SAP…")
+
+    def start_sap_bot():
         bot = SAPBot()
         bot.start()
         bot.login()
+        return bot
+
+
+    try:
+        status_box.info("Connecting to SAP…")
+        bot = start_sap_bot()
         status_box.success("SAP connected ✅")
     except Exception as sap_exc:
         st.error(f"SAP connection failed: {sap_exc}")
@@ -845,29 +851,67 @@ if process_all:
 
             sap_status = "Failed"
             sap_error = ""
-            try:
-                file_obj = io.BytesIO(file_bytes)
-                file_obj.name = file_name
-                upload_to_sap(
-                    bot,
-                    {
-                        "jr_number": jr_no,
-                        "first_name": first_name,
-                        "last_name": last_name,
-                        "submit": submit_mode,
-                        "email": row_data["Email"],
-                        "phone": row_data["Phone"],
-                        "country_code": "+91",
-                        "country": "India",
-                        "resume_file": file_obj,
-                    },
-                )
-                sap_status = "Done"
-                st.success(f"  ✅ SAP upload {'submitted' if submit_mode else 'dry-run'}: **{cand_label}**")
-            except Exception as sap_exc:
-                sap_error = str(sap_exc)
-                st.error(f"  ❌ SAP upload failed: {sap_error}")
 
+
+            def is_session_dead(err):
+                msg = str(err).lower()
+                return "invalid session id" in msg or "disconnected" in msg or "not connected to devtools" in msg
+
+
+            for attempt in range(2):  # retry once
+                try:
+                    # 🧠 Check if driver is alive before using
+                    try:
+                        bot.driver.current_url
+                    except:
+                        raise Exception("SAP session lost")
+
+                    file_obj = io.BytesIO(file_bytes)
+                    file_obj.name = file_name
+
+                    upload_to_sap(
+                        bot,
+                        {
+                            "jr_number": jr_no,
+                            "first_name": first_name,
+                            "last_name": last_name,
+                            "submit": submit_mode,
+                            "email": row_data["Email"],
+                            "phone": row_data["Phone"],
+                            "country_code": "+91",
+                            "country": "India",
+                            "resume_file": file_obj,
+                        },
+                    )
+
+                    sap_status = "Done"
+                    st.success(f"  ✅ SAP upload {'submitted' if submit_mode else 'dry-run'}: **{cand_label}**")
+                    break
+
+                except Exception as sap_exc:
+                    sap_error = str(sap_exc)
+
+                    # 🔥 If session crashed → restart
+                    if is_session_dead(sap_exc) and attempt == 0:
+                        st.warning("⚠️ SAP session lost. Restarting browser...")
+
+                        try:
+                            bot.close()
+                        except:
+                            pass
+
+                        try:
+                            bot = start_sap_bot()
+                            st.info("🔁 SAP session restarted. Retrying...")
+                            continue
+                        except Exception as restart_exc:
+                            sap_error = f"Restart failed: {restart_exc}"
+                            break
+                    else:
+                        break
+
+            if sap_status != "Done":
+                st.error(f"  ❌ SAP upload failed: {sap_error}")
             # 5. Update DB with SAP status
             if db_record_id:
                 try:

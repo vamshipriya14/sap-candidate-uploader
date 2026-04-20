@@ -1349,7 +1349,8 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
     finally:
         if bot:
             try:
-                bot.close()
+                if bot.driver:
+                    bot.close()
             except Exception:
                 pass
         status_box.empty()
