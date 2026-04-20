@@ -48,7 +48,7 @@ log = logging.getLogger("scheduler")
 # ─────────────────────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────────────────────
-INBOX_EMAIL = st.secrets.get("INBOX_EMAIL", []) or os.environ.get("SCHEDULER_INBOX_EMAIL", "")
+INBOX_EMAIL = os.environ.get("SCHEDULER_USER_EMAIL", "")
 SUBJECT_PREFIX   = "Profiles - BS:"
 SUBMIT_TO_SAP    = os.environ.get("SCHEDULER_SUBMIT_TO_SAP", "true").lower() == "true"
 MAX_MESSAGES     = int(os.environ.get("SCHEDULER_MAX_MESSAGES", "50"))
@@ -57,7 +57,7 @@ SCHEDULER_USER   = {
     "name": "Scheduler Bot",
     "access_token": "",
 }
-EMAIL_CC = st.secrets.get("EMAIL_CC", []) or os.environ.get("SCHEDULER_EMAIL_CC", "").split(",")
+EMAIL_CC = os.environ.get("SCHEDULER_EMAIL_CC", "").split(",")
 
 
 # ─────────────────────────────────────────────────────────────
