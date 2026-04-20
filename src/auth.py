@@ -323,6 +323,14 @@ def show_navigation(current_page: str) -> None:
         if current_page == "pending_emails":
             st.markdown("</div>", unsafe_allow_html=True)
 
+        # Email Inbox Sync
+        if current_page == "email_inbox":
+            st.markdown('<div class="nav-active">', unsafe_allow_html=True)
+        if st.button("📬 Email Inbox Sync", use_container_width=True, key="nav_email_inbox"):
+            st.switch_page("pages/Email_Inbox.py")
+        if current_page == "email_inbox":
+            st.markdown("</div>", unsafe_allow_html=True)
+
         # User Guide
         if current_page == "user_guide":
             st.markdown('<div class="nav-active">', unsafe_allow_html=True)

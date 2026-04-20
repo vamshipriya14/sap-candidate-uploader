@@ -126,6 +126,10 @@ def _resume_db_payload(row: dict, user: dict, resume_link: str | None = None) ->
         "recruiter": str(row.get("recruiter", "") or user.get("name", "")).strip(),
         "recruiter_email": str(row.get("recruiter_email", "") or user.get("email", "")).strip(),
     }
+    # Optional: store the source email ID to prevent re-processing the same email
+    source_email_id = str(row.get("source_email_id", "")).strip()
+    if source_email_id:
+        payload["source_email_id"] = source_email_id
     if resume_link is not None:
         payload["resume_link"] = resume_link
     return payload
@@ -172,6 +176,133 @@ def delete_resume_from_shared_drive(access_token: str, file_name: str, subfolder
     )
     if response.status_code not in (204, 404):
         response.raise_for_status()
+
+
+# ─────────────────────────────────────────────────────────────
+# hrvolibot OneDrive — app-token-based (no delegated user needed)
+# Resumes from the email inbox are stored here, segregated by JR folder.
+# Root folder inside hrvolibot's drive: "Inbox Resumes"
+# ─────────────────────────────────────────────────────────────
+
+HRVOLIBOT_EMAIL = "hrvolibot@volibits.com"
+HRVOLIBOT_ROOT_FOLDER = "Inbox Resumes"          # top-level folder in hrvolibot's OneDrive
+
+
+def _hrvolibot_app_token() -> str:
+    """Client-credentials token — reuses same Azure app as notifier."""
+    import os as _os
+    # Read secrets the same way notifier.py does
+    def _s(name: str, *fallbacks: str) -> str:
+        secrets_obj = None
+        try:
+            secrets_obj = st.secrets
+        except Exception:
+            pass
+        for key in (name, *fallbacks):
+            if secrets_obj is not None:
+                try:
+                    v = secrets_obj.get(key)
+                    if v:
+                        return str(v)
+                except Exception:
+                    pass
+        for key in (name, *fallbacks):
+            v = _os.getenv(key)
+            if v:
+                return v
+        return ""
+
+    tenant  = _s("MICROSOFT_TENANT_ID",  "AZURE_TENANT_ID",  "ST_AZURE_TENANT_ID")
+    client  = _s("MICROSOFT_CLIENT_ID",  "AZURE_CLIENT_ID",  "ST_AZURE_CLIENT_ID")
+    secret  = _s("MICROSOFT_CLIENT_SECRET", "AZURE_CLIENT_SECRET", "ST_AZURE_CLIENT_SECRET")
+    if not all([tenant, client, secret]):
+        raise Exception("Missing AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET")
+
+    resp = requests.post(
+        f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        data={
+            "client_id":     client,
+            "client_secret": secret,
+            "scope":         "https://graph.microsoft.com/.default",
+            "grant_type":    "client_credentials",
+        },
+        timeout=30,
+    )
+    data = resp.json()
+    if "access_token" not in data:
+        raise Exception(f"Token error: {data.get('error_description', data)}")
+    return data["access_token"]
+
+
+def _hrvolibot_drive_id(token: str) -> str:
+    """Return the driveId for hrvolibot@volibits.com."""
+    resp = requests.get(
+        f"https://graph.microsoft.com/v1.0/users/{HRVOLIBOT_EMAIL}/drive",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["id"]
+
+
+def upload_resume_to_hrvolibot_drive(
+    file_name: str,
+    content: bytes,
+    jr_number: str,
+) -> str:
+    """
+    Upload a resume to hrvolibot@volibits.com's OneDrive under:
+        Inbox Resumes/<JR_FOLDER>/<file_name>
+
+    Uses the app-level client-credentials token — no logged-in user required.
+    Returns the webUrl of the uploaded file.
+    """
+    token        = _hrvolibot_app_token()
+    drive_id     = _hrvolibot_drive_id(token)
+    safe_name    = _clean_file_name(file_name)
+    jr_folder    = jr_folder_name(jr_number)
+    remote_path  = f"{HRVOLIBOT_ROOT_FOLDER}/{jr_folder}/{safe_name}"
+
+    url = (
+        f"https://graph.microsoft.com/v1.0"
+        f"/drives/{drive_id}/root:/{remote_path}:/content"
+    )
+    resp = requests.put(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/octet-stream",
+        },
+        data=content,
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.json().get("webUrl", "")
+
+
+def delete_resume_from_hrvolibot_drive(file_name: str, jr_number: str) -> None:
+    """Delete a file from hrvolibot's OneDrive (best-effort)."""
+    try:
+        token       = _hrvolibot_app_token()
+        drive_id    = _hrvolibot_drive_id(token)
+        safe_name   = _clean_file_name(file_name)
+        jr_folder   = jr_folder_name(jr_number)
+        remote_path = f"{HRVOLIBOT_ROOT_FOLDER}/{jr_folder}/{safe_name}"
+
+        url = (
+            f"https://graph.microsoft.com/v1.0"
+            f"/drives/{drive_id}/root:/{remote_path}"
+        )
+        resp = requests.delete(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        if resp.status_code not in (204, 404):
+            resp.raise_for_status()
+    except Exception:
+        pass  # deletion is best-effort
 
 
 def fetch_active_jr_master() -> list[dict]:
