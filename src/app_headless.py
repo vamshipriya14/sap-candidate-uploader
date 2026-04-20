@@ -16,6 +16,7 @@ from resume_repository import (
     update_resume_record,
     upload_resume,
     download_resume,
+    delete_resume,
 )
 from sap_bot_headless import SAPBot
 from uploader import upload_to_sap
@@ -337,8 +338,6 @@ def _sync_resume_rows_to_db(edited_df: pd.DataFrame, user: dict) -> None:
 
         jr_folder = jr_folder_name(jr_number)
         current_link = st.session_state.resume_paths.get(file_name, "")
-
-        from resume_repository import delete_resume
 
         if not current_link.startswith(f"{jr_folder}/"):
             file_bytes = st.session_state.uploaded_files_store.get(file_name)
