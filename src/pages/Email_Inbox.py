@@ -543,6 +543,7 @@ st.dataframe(
 st.divider()
 
 # ── Per-email processing ──────────────────────────────────────
+from_email = _safe(msg.get("from", {}).get("emailAddress", {}).get("address"))
 submit_mode = st.toggle(
     "Submit to SAP (Live Mode)",
     value=False,
@@ -710,6 +711,8 @@ if process_all:
                 "Actual Status": "Not Called",
                 "Call Iteration": "First Call",
                 "source_email_id": msg_id,
+                "created_by": from_email,  # ← sender's email
+                "modified_by": from_email,  # ← sender's email
             }
 
             # ─────────────────────────────
@@ -741,6 +744,8 @@ if process_all:
                             json={
                                 "client_recruiter": client_recruiter,
                                 "client_recruiter_email": client_recruiter_email,
+                                "created_by": from_email,  # ← sender's email
+                                "modified_by": from_email,  # ← sender's email
                             },
                             timeout=10,
                         )
@@ -789,6 +794,8 @@ if process_all:
                                     "upload_to_sap": "Pending",
                                     "client_recruiter": client_recruiter,
                                     "client_recruiter_email": client_recruiter_email,
+                                    "created_by": from_email,  # ← sender's email
+                                    "modified_by": from_email,  # ← sender's email
                                 },
                                 timeout=10,
                             )
@@ -928,6 +935,10 @@ if process_all:
                     "upload_to_sap": sap_status,  # "Done" | "Failed" | "Skipped"
                     "client_recruiter": client_recruiter,
                     "client_recruiter_email": client_recruiter_email,
+                    "created_by": from_email,  # ← sender's email
+                    "modified_by": from_email,  # ← sender's email
+                    "created_at": datetime.now().isoformat(),
+                    "modified_at": datetime.now().isoformat(),
                 }
                 if sap_error:
                     patch_payload["error_message"] = sap_error[:500]
