@@ -31,6 +31,7 @@ from notifier import send_upload_notification
 from resume_repository import (
     _headers,
     download_resume,
+    fetch_existing_record,
     SUPABASE_URL,
     SUPABASE_TABLE,
 )
@@ -172,21 +173,30 @@ def run_pipeline() -> dict:
 
         log.info(f"  → {cand_label} | JR: {jr_no} | id: {record_id}")
 
+        # ── Check for duplicates (retry failed/skipped uploads) ───
+        duplicate = fetch_existing_record(jr_no, email, phone)
+        if duplicate:
+            dup_id = str(duplicate.get("id", "")).strip()
+            dup_status = str(duplicate.get("upload_to_sap", "")).strip().lower()
+            if dup_id != record_id and dup_status in ("failed", "skipped"):
+                log.info(f"     Duplicate found (id: {dup_id}) with status={dup_status} — retrying upload")
+                record_id = dup_id
+            elif dup_id != record_id:
+                log.info(f"     Duplicate found with status={dup_status} — skipping")
+                summary["skipped"] += 1
+                _add_result(by_recruiter, created_by, file_name, "Duplicate candidate")
+                continue
+
         # ── 3a. Download resume from Supabase Storage ─────────
         file_bytes = None
         if resume_path:
             try:
-                # Handle already-signed URLs
-                if resume_path.startswith("/object/sign/") or resume_path.startswith("http"):
-                    if resume_path.startswith("/"):
-                        url = f"{SUPABASE_URL}{resume_path}"
-                    else:
-                        url = resume_path
-                    resp = requests.get(url, timeout=30)
-                    resp.raise_for_status()
-                    file_bytes = resp.content
-                else:
-                    file_bytes = download_resume(resume_path)
+                # Clean up resume_path if stored as signed URL
+                if resume_path.startswith("/object/sign/"):
+                    resume_path = resume_path.replace("/object/sign/resumes/", "")
+                    resume_path = resume_path.split("?")[0]  # remove token
+
+                file_bytes = download_resume(resume_path)
                 log.info(f"     Downloaded resume ({len(file_bytes):,} bytes)")
             except Exception as e:
                 log.warning(f"     Resume download failed: {e}")
