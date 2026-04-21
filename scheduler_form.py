@@ -122,6 +122,7 @@ def run_pipeline() -> dict:
 
     log.info("=" * 60)
     log.info(f"Form scheduler run started — submit_to_sap={SUBMIT_TO_SAP}")
+    log.info(f"SUPABASE_URL={SUPABASE_URL[:20] if SUPABASE_URL else 'NOT SET'}...")
 
     # ── 1. Fetch Pending form-submitted records ───────────────
     try:
