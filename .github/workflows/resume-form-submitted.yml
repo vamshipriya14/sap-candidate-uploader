@@ -44,12 +44,13 @@ jobs:
           # Supabase
           SUPABASE_URL              : ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY : ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_TABLE            : ${{ secrets.SUPABASE_TABLE }}
+          SUPABASE_TABLE            : ${{ secrets.SUPABASE_RESUME_TABLE }}
           # SAP
-          SAP_URL                   : ${{ secrets.SAP_URL }}
-          SAP_USERNAME              : ${{ secrets.SAP_USERNAME }}
+          SAP_COMPANY_ID            : ${{ secrets.SAP_COMPANY_ID }}
+          SAP_AGENCY_ID             : ${{ secrets.SAP_AGENCY_ID }}
+          SAP_EMAIL                 : ${{ secrets.SAP_EMAIL }}
           SAP_PASSWORD              : ${{ secrets.SAP_PASSWORD }}
-          # Microsoft Graph (for notification emails only)
+          # Azure (for email notifications)
           AZURE_CLIENT_ID           : ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET       : ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_TENANT_ID           : ${{ secrets.AZURE_TENANT_ID }}
