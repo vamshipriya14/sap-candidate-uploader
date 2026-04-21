@@ -171,7 +171,13 @@ def get_resume_url(file_path: str) -> str:
     if resp.status_code != 200:
         return ""
 
-    return resp.json().get("signedURL", "")
+    signed_url = resp.json().get("signedURL", "")
+
+    # Handle relative URLs from API
+    if signed_url and not signed_url.startswith("http"):
+        signed_url = f"{SUPABASE_URL}{signed_url}"
+
+    return signed_url
 
 
 # ─────────────────────────────────────────────
