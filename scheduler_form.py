@@ -59,13 +59,6 @@ EMAIL_CC       = [e for e in os.environ.get("SCHEDULER_EMAIL_CC", "").split(",")
 NON_CRITICAL_SAP_ERRORS = ["requisition id", "not found in job list"]
 DEAD_SESSION_ERRORS     = ["invalid session id", "no such session", "disconnected"]
 
-SUPABASE_URL = _secret("SUPABASE_URL")
-SUPABASE_KEY = _secret("SUPABASE_SERVICE_ROLE_KEY")
-SUPABASE_TABLE = (
-    os.environ.get("SUPABASE_TABLE")
-    or os.environ.get("SUPABASE_RESUME_TABLE")
-    or "candidates_submitted")
-
 BUCKET = "resumes"
 # ─────────────────────────────────────────────────────────────
 # HELPERS
@@ -133,7 +126,6 @@ def run_pipeline() -> dict:
 
     log.info("=" * 60)
     log.info(f"Form scheduler run started — submit_to_sap={SUBMIT_TO_SAP}")
-    log.info(f"SUPABASE_URL={SUPABASE_URL[:20] if SUPABASE_URL else 'NOT SET'}...")
 
     # ── 1. Fetch Pending form-submitted records ───────────────
     try:
