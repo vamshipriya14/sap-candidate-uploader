@@ -394,11 +394,16 @@ def fetch_all_resume_records() -> list[dict]:
 # ⬇️ DOWNLOAD
 # ─────────────────────────────────────────────
 def download_resume(file_path: str) -> bytes:
+    import logging
+    log = logging.getLogger("resume_download")
+
     signed_url = get_resume_url(file_path)
 
     if not signed_url:
         raise Exception("Failed to generate signed URL")
 
+    log.info(f"Requesting: {file_path}")
+    log.info(f"Signed URL: {signed_url}...")
     resp = requests.get(signed_url, timeout=30)
 
     if resp.status_code != 200:
