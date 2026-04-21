@@ -480,10 +480,6 @@ def run_pipeline() -> dict:
         if already_done:
             log.info("Already processed — skipping.")
             continue
-        if check_already_processed(msg_id):
-            log.info("Already processed — skipping.")
-            continue
-
         body_content       = msg.get("body", {}).get("content", "")
         candidates_in_email = parse_body_table(body_content)
 
@@ -777,42 +773,72 @@ def run_pipeline() -> dict:
                 "Status": "Success" if sap_status == "Done" else sap_error[:100],
             })
 
-        # Mark email as read + move after all candidates processed
-        try:
-            requests.patch(
-                f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/messages/{msg_id}",
-                headers=_graph_headers(token),
-                json={"isRead": True},
-                timeout=15,
-            )
-            move_message_to_processed(token, msg_id)
-        except Exception as e:
-            log.warning(f"Mark read / move failed: {e}")
+            # Mark email as read + move after all candidates processed
+            try:
+                requests.patch(
+                    f"https://graph.microsoft.com/v1.0/users/{INBOX_EMAIL}/messages/{msg_id}",
+                    headers=_graph_headers(token),
+                    json={"isRead": True},
+                    timeout=15,
+                )
+                move_message_to_processed(token, msg_id)
+            except Exception as e:
+                log.warning(f"Mark read / move failed: {e}")
 
-    # ── 6. Quit SAP bot ───────────────────────────────────────
-    if bot:
-        try:
-            bot.quit()
-        except Exception:
-            pass
+            # ── Send report per email to the recruiter who sent it ──
+            if results_log:
+                report_user = {"email": from_email, "name": from_email, "access_token": ""}
+                ok, msg_result = send_upload_notification(
+                    access_token="",
+                    user=report_user,
+                    results=results_log,
+                    submit_mode=SUBMIT_TO_SAP,
+                    attachments=failed_upload_attachments,
+                    cc=os.environ.get("EMAIL_CC", "").split(",") if os.environ.get("EMAIL_CC") else [],
+                )
+                if ok:
+                    log.info(f"📧 Report sent to {from_email}")
+                else:
+                    log.warning(f"Report not sent: {msg_result}")
+                results_log = []  # reset for next email
+                failed_upload_attachments = []  # reset for next email
+
+        # ── 6. Quit SAP bot ──────────────────────────────────────
+        if bot:
+            try:
+                bot.quit()
+            except Exception:
+                pass
+
+        elapsed = (datetime.now(timezone.utc) - run_start).total_seconds()
+        log.info(
+            f"Run complete in {elapsed:.1f}s — "
+            f"candidates={summary['candidates']} done={summary['done']} "
+            f"skipped={summary['skipped']} failed={summary['failed']}"
+        )
+        log.info("=" * 60)
+        return summary
 
     # ── 7. Send report email ──────────────────────────────────
-    if results_log:
-        try:
+        # ── end of per-candidate loop ──
+
+        # Send report per email, to the sender of that specific email
+        if results_log:
+            report_user = {"email": from_email, "name": from_email, "access_token": ""}
             ok, msg_result = send_upload_notification(
-                access_token=SCHEDULER_USER.get("access_token", ""),
-                user=SCHEDULER_USER,
+                access_token="",
+                user=report_user,
                 results=results_log,
                 submit_mode=SUBMIT_TO_SAP,
                 attachments=failed_upload_attachments,
-                cc=EMAIL_CC or None,
+                cc=os.environ.get("EMAIL_CC", "").split(",") if os.environ.get("EMAIL_CC") else [],
             )
             if ok:
-                log.info("📧 Report email sent.")
+                log.info(f"📧 Report sent to {from_email}")
             else:
-                log.warning(f"Report email not sent: {msg_result}")
-        except Exception as e:
-            log.warning(f"Notification failed: {e}")
+                log.warning(f"Report not sent: {msg_result}")
+            results_log = []  # reset for next email
+            failed_upload_attachments = []  # reset for next email
 
     elapsed = (datetime.now(timezone.utc) - run_start).total_seconds()
     log.info(

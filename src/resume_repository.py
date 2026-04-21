@@ -54,7 +54,7 @@ def _now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
-# 🔴 Fix #4: Single consolidated header function used everywhere
+# 🔴 Fix #4: Single consolidated header function send_upload_notification used everywhere
 def _headers(json: bool = True) -> dict:
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise Exception("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
