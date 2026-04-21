@@ -37,6 +37,7 @@ from resume_repository import (
 )
 from sap_bot_headless import SAPBot
 from uploader import upload_to_sap
+from resume_repository import _secret
 
 # ─────────────────────────────────────────────────────────────
 # LOGGING
@@ -58,8 +59,14 @@ EMAIL_CC       = [e for e in os.environ.get("SCHEDULER_EMAIL_CC", "").split(",")
 NON_CRITICAL_SAP_ERRORS = ["requisition id", "not found in job list"]
 DEAD_SESSION_ERRORS     = ["invalid session id", "no such session", "disconnected"]
 
-SUPABASE_URL
+SUPABASE_URL = _secret("SUPABASE_URL")
+SUPABASE_KEY = _secret("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_TABLE = (
+    os.environ.get("SUPABASE_TABLE")
+    or os.environ.get("SUPABASE_RESUME_TABLE")
+    or "candidates_submitted")
 
+BUCKET = "resumes"
 # ─────────────────────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────────────────────
