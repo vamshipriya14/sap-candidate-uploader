@@ -194,14 +194,29 @@ def run_pipeline() -> dict:
         file_bytes = None
         if resume_path:
             try:
-                log.info(f"     Resume path (raw): {resume_path[:60] if resume_path else 'empty'}...")
-                # Clean up resume_path if stored as signed URL
-                if resume_path.startswith("/object/sign/"):
-                    resume_path = resume_path.replace("/object/sign/resumes/", "")
-                    resume_path = resume_path.split("?")[0]  # remove token
-                    log.info(f"     Resume path (cleaned): {resume_path}")
+                # Download directly with auth headers instead of signed URLs
+                from resume_repository import SUPABASE_URL, _headers
 
-                file_bytes = download_resume(resume_path)
+                # Clean path if needed
+                clean_path = resume_path
+                if clean_path.startswith("/object/sign/"):
+                    clean_path = clean_path.replace("/object/sign/resumes/", "")
+                    clean_path = clean_path.split("?")[0]
+
+                log.info(f"     Resume path: {clean_path}")
+
+                # Download with authentication headers
+                url = f"{SUPABASE_URL}/storage/v1/object/authenticated/resumes/{clean_path}"
+                resp = requests.get(url, headers=_headers(json=False), timeout=30)
+
+                if resp.status_code != 200:
+                    log.warning(f"     Auth download failed ({resp.status_code}), trying public...")
+                    # Fallback to public endpoint
+                    url = f"{SUPABASE_URL}/storage/v1/object/public/resumes/{clean_path}"
+                    resp = requests.get(url, timeout=30)
+
+                resp.raise_for_status()
+                file_bytes = resp.content
                 log.info(f"     Downloaded resume ({len(file_bytes):,} bytes)")
             except Exception as e:
                 log.warning(f"     Resume download failed: {e}")
