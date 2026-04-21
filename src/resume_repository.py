@@ -159,11 +159,7 @@ def upload_resume(file_name: str, content: bytes, jr_number: str) -> str:
 # 🔗 SIGNED URL (on demand)
 # ─────────────────────────────────────────────
 def get_resume_url(file_path: str) -> str:
-    import logging
-    log = logging.getLogger("get_resume_url")
-
     url = f"{SUPABASE_URL}/storage/v1/object/sign/{BUCKET}/{file_path}"
-    log.info(f"Sign request URL: {url}")
 
     resp = requests.post(
         url,
@@ -172,9 +168,7 @@ def get_resume_url(file_path: str) -> str:
         timeout=20,
     )
 
-    log.info(f"Sign response status: {resp.status_code}")
     if resp.status_code != 200:
-        log.error(f"Sign failed: {resp.text}")
         return ""
 
     signed_url = resp.json().get("signedURL", "")
@@ -402,16 +396,11 @@ def fetch_all_resume_records() -> list[dict]:
 # ⬇️ DOWNLOAD
 # ─────────────────────────────────────────────
 def download_resume(file_path: str) -> bytes:
-    import logging
-    log = logging.getLogger("resume_download")
-
     signed_url = get_resume_url(file_path)
 
     if not signed_url:
         raise Exception("Failed to generate signed URL")
 
-    log.info(f"Requesting: {file_path}")
-    log.info(f"Signed URL: {signed_url}...")
     resp = requests.get(signed_url, timeout=30)
 
     if resp.status_code != 200:
