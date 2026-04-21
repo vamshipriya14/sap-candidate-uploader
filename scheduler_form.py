@@ -138,14 +138,20 @@ def run_pipeline() -> dict:
         log.info("Nothing to process.")
         return summary
 
-    # ── 2. Start SAP bot ──────────────────────────────────────
+    # ── 2. Start SAP bot (with retry) ─────────────────────
     bot = None
-    try:
-        bot = _start_bot()
-        log.info("SAP bot connected ✅")
-    except Exception as e:
-        log.error(f"SAP bot failed to start: {e}")
-        summary["errors"].append(f"SAP start: {e}")
+    max_bot_retries = 2
+    for attempt in range(max_bot_retries):
+        try:
+            bot = _start_bot()
+            log.info("SAP bot connected ✅")
+            break
+        except Exception as e:
+            if attempt < max_bot_retries - 1:
+                log.warning(f"SAP bot failed (attempt {attempt + 1}), retrying…")
+            else:
+                log.error(f"SAP bot failed to start: {e}")
+                summary["errors"].append(f"SAP start: {e}")
 
     # ── 3. Process each record ────────────────────────────────
     # Group by created_by so one notification goes per recruiter
@@ -176,13 +182,13 @@ def run_pipeline() -> dict:
 
         # ── 3b. SAP upload ────────────────────────────────────
         if not bot:
-            log.warning("     SAP bot unavailable — marking Failed")
+            log.warning("     SAP bot unavailable — marking Skipped")
             _patch_record(record_id, {
-                "upload_to_sap": "Failed",
+                "upload_to_sap": "Skipped",
                 "error_message": "SAP bot unavailable",
                 "modified_at"  : _now_iso(),
             })
-            summary["failed"] += 1
+            summary["skipped"] += 1
             _add_result(by_recruiter, created_by, file_name, "SAP bot unavailable")
             continue
 
