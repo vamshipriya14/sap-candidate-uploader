@@ -194,10 +194,12 @@ def run_pipeline() -> dict:
         file_bytes = None
         if resume_path:
             try:
+                log.info(f"     Resume path (raw): {resume_path[:60] if resume_path else 'empty'}...")
                 # Clean up resume_path if stored as signed URL
                 if resume_path.startswith("/object/sign/"):
                     resume_path = resume_path.replace("/object/sign/resumes/", "")
                     resume_path = resume_path.split("?")[0]  # remove token
+                    log.info(f"     Resume path (cleaned): {resume_path}")
 
                 file_bytes = download_resume(resume_path)
                 log.info(f"     Downloaded resume ({len(file_bytes):,} bytes)")
