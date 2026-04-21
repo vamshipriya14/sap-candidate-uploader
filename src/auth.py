@@ -348,7 +348,7 @@ def show_navigation(current_page: str) -> None:
         if current_page == "email_inbox":
             st.markdown('<div class="nav-active">', unsafe_allow_html=True)
         if st.button("📥 Email Inbox Sync", use_container_width=True, key="nav_email_inbox"):
-            st.switch_page("pages/Email_Inbox_Sync.py")
+            st.switch_page("pages/Email_Inbox.py")
         if current_page == "email_inbox":
             st.markdown("</div>", unsafe_allow_html=True)
 
