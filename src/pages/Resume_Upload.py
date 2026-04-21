@@ -69,6 +69,15 @@ jr_options = ["— select —"] + sorted(jr_master.keys())
 def _safe(val) -> str:
     return str(val).strip() if val else ""
 
+def _extract_name_from_email(email: str) -> str:
+    """Extract name from email: john.doe@company.com → John Doe"""
+    if not email or "@" not in email:
+        return ""
+    name_part = email.split("@")[0]
+    # Convert john.doe → John Doe
+    name = name_part.replace(".", " ").replace("-", " ").replace("_", " ")
+    return " ".join(word.capitalize() for word in name.split())
+
 
 def trigger_github_workflow(record_ids: list, recruiter_email: str) -> tuple[bool, str]:
     """Fire a repository_dispatch event on GitHub → workflow runs scheduler_form.py."""
@@ -103,9 +112,9 @@ if "upload_rows" not in st.session_state:
     st.session_state.upload_rows = []
 
 # ══════════════════════════════════════════════════════════════════════════
-# SECTION 1 — JR selection + file upload
+# SECTION 1 — JR selection + Recruiter Email + file upload
 # ══════════════════════════════════════════════════════════════════════════
-col_jr, col_info = st.columns([1, 2])
+col_jr, col_email, col_info = st.columns([1, 1.5, 1.5])
 
 with col_jr:
     selected_jr = st.selectbox(
@@ -116,6 +125,13 @@ with col_jr:
     jr_no = "" if selected_jr == "— select —" else selected_jr
     jr_meta = jr_master.get(jr_no, {})
     skill = _safe(jr_meta.get("skill_name") or jr_meta.get("skill", ""))
+
+with col_email:
+    recruiter_email = st.text_input(
+        "Recruiter Email ID",
+        value=user.get("email", ""),
+        help="Your email to receive SAP upload notifications.",
+    )
 
 with col_info:
     if jr_no and jr_meta:
@@ -149,14 +165,15 @@ if uploaded_files:
 
             full_name = f"{parsed.get('first_name','')} {parsed.get('last_name','')}".strip()
             rows.append({
-                "Candidate Name": full_name,
-                "Email ID"      : parsed.get("email", ""),
-                "Contact Number": parsed.get("phone", ""),
-                "Resume File"   : f.name,
-                "_first"        : parsed.get("first_name", ""),
-                "_last"         : parsed.get("last_name", ""),
-                "_today"        : today_text,
-                "_file_bytes"   : f.getvalue(),
+                "Candidate Name" : full_name,
+                "Email ID"       : parsed.get("email", ""),
+                "Contact Number" : parsed.get("phone", ""),
+                "Recruiter Email": "",  # Empty, user fills in
+                "Resume File"    : f.name,
+                "_first"         : parsed.get("first_name", ""),
+                "_last"          : parsed.get("last_name", ""),
+                "_today"         : today_text,
+                "_file_bytes"    : f.getvalue(),
             })
 
         progress.empty()
@@ -238,6 +255,7 @@ if st.session_state.upload_rows:
 
         client_recruiter       = _safe(jr_meta.get("client_recruiter") or jr_meta.get("recruiter"))
         client_recruiter_email = _safe(jr_meta.get("client_recruiter_email") or jr_meta.get("recruiter_email"))
+        recruiter_name         = _extract_name_from_email(recruiter_email)
 
         for idx, row in enumerate(merged):
             progress_bar.progress(
@@ -263,12 +281,14 @@ if st.session_state.upload_rows:
                 "Email"                  : email,
                 "Phone"                  : phone,
                 "upload_to_sap"          : "Pending",
+                "recruiter"              : recruiter_name,
+                "recruiter_email"        : recruiter_email,
                 "client_recruiter"       : client_recruiter,
                 "client_recruiter_email" : client_recruiter_email,
                 "Actual Status"          : "Not Called",
                 "Call Iteration"         : "First Call",
-                "created_by"             : user.get("email", ""),
-                "modified_by"            : user.get("email", ""),
+                "created_by"             : recruiter_email,
+                "modified_by"            : recruiter_email,
             }
 
             # ── 1. Duplicate check ────────────────────────────────────────
