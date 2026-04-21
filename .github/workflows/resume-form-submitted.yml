@@ -1,0 +1,69 @@
+name: Resume Form Submitted
+
+# Triggered when the Resume_Upload.py form fires a repository_dispatch event,
+# OR on a schedule as a safety net (picks up any missed rows).
+on:
+  repository_dispatch:
+    types: [resume-form-submitted]
+  schedule:
+    - cron: '*/30 * * * *'   # every 30 min — safety net
+  workflow_dispatch:           # allow manual trigger from Actions tab
+
+jobs:
+  process-form-submissions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Log trigger info
+        if: github.event_name == 'repository_dispatch'
+        run: |
+          echo "Triggered by form submission"
+          echo "Recruiter: ${{ github.event.client_payload.recruiter_email }}"
+          echo "Record IDs: ${{ toJson(github.event.client_payload.record_ids) }}"
+          echo "Submitted at: ${{ github.event.client_payload.submitted_at }}"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run form scheduler (SAP upload + notification)
+        env:
+          # Supabase
+          SUPABASE_URL              : ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY : ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_TABLE            : ${{ secrets.SUPABASE_TABLE }}
+          # SAP
+          SAP_URL                   : ${{ secrets.SAP_URL }}
+          SAP_USERNAME              : ${{ secrets.SAP_USERNAME }}
+          SAP_PASSWORD              : ${{ secrets.SAP_PASSWORD }}
+          # Microsoft Graph (for notification emails only)
+          AZURE_CLIENT_ID           : ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET       : ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID           : ${{ secrets.AZURE_TENANT_ID }}
+          # Scheduler tuning
+          SCHEDULER_SUBMIT_TO_SAP   : 'true'
+          SCHEDULER_MAX_RECORDS     : '50'
+          SCHEDULER_EMAIL_CC        : ${{ secrets.SCHEDULER_EMAIL_CC }}
+        run: python scheduler_form.py
+
+      - name: Upload failure screenshots (if any)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sap-screenshots-${{ github.run_id }}
+          path: screenshots/
+          if-no-files-found: ignore
+          retention-days: 7

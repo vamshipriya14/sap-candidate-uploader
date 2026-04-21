@@ -344,12 +344,12 @@ def show_navigation(current_page: str) -> None:
         if current_page == "pending_emails":
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # Email Inbox Sync
-        if current_page == "email_inbox":
+        # Direct Resume Upload (replaces Email Inbox Sync)
+        if current_page == "resume_upload":
             st.markdown('<div class="nav-active">', unsafe_allow_html=True)
-        if st.button("📬 Email Inbox Sync", use_container_width=True, key="nav_email_inbox"):
-            st.switch_page("pages/Email_Inbox.py")
-        if current_page == "email_inbox":
+        if st.button("📤 Resume Upload", use_container_width=True, key="nav_resume_upload"):
+            st.switch_page("pages/Resume_Upload.py")
+        if current_page == "resume_upload":
             st.markdown("</div>", unsafe_allow_html=True)
 
         # User Guide
