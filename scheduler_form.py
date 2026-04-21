@@ -58,6 +58,8 @@ EMAIL_CC       = [e for e in os.environ.get("SCHEDULER_EMAIL_CC", "").split(",")
 NON_CRITICAL_SAP_ERRORS = ["requisition id", "not found in job list"]
 DEAD_SESSION_ERRORS     = ["invalid session id", "no such session", "disconnected"]
 
+SUPABASE_URL
+
 # ─────────────────────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────────────────────
