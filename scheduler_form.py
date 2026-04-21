@@ -175,7 +175,17 @@ def run_pipeline() -> dict:
         file_bytes = None
         if resume_path:
             try:
-                file_bytes = download_resume(resume_path)
+                # Handle already-signed URLs
+                if resume_path.startswith("/object/sign/") or resume_path.startswith("http"):
+                    if resume_path.startswith("/"):
+                        url = f"{SUPABASE_URL}{resume_path}"
+                    else:
+                        url = resume_path
+                    resp = requests.get(url, timeout=30)
+                    resp.raise_for_status()
+                    file_bytes = resp.content
+                else:
+                    file_bytes = download_resume(resume_path)
                 log.info(f"     Downloaded resume ({len(file_bytes):,} bytes)")
             except Exception as e:
                 log.warning(f"     Resume download failed: {e}")
@@ -281,6 +291,7 @@ def run_pipeline() -> dict:
     # ── 5. Send notification per recruiter ────────────────────
     for recruiter_email, info in by_recruiter.items():
         if not recruiter_email:
+            log.warning(f"Skipping notification — no recruiter email (results: {info['results']})")
             continue
         report_user = {
             "email"       : recruiter_email,
