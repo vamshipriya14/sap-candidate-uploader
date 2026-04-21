@@ -84,7 +84,8 @@ def _start_bot() -> SAPBot:
 
 def fetch_form_pending_records(limit: int = 50) -> list:
     """
-    Fetch records submitted via the form that are still Pending.
+    Fetch records submitted via the form (Pending, Failed, or Skipped for retry).
+    Include failed/skipped records to retry SAP upload.
 
     Key distinction from scheduler.py (email inbox):
         Email-submitted records have source_email_id populated.
@@ -92,8 +93,8 @@ def fetch_form_pending_records(limit: int = 50) -> list:
     """
     url = (
         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
-        f"?upload_to_sap=eq.Pending"
-        f"&source_email_id=is.null"        # ← ONLY form-submitted rows
+        f"?source_email_id=is.null"        # ← ONLY form-submitted rows
+        f"&upload_to_sap=in.(Pending,Failed,Skipped)"  # Retry failed/skipped
         f"&select=*"
         f"&limit={limit}"
     )
@@ -175,16 +176,18 @@ def run_pipeline() -> dict:
 
         # ── Check for duplicates (retry failed/skipped uploads) ───
         duplicate = fetch_existing_record(jr_no, email, phone)
+        is_duplicate = False
         if duplicate:
             dup_id = str(duplicate.get("id", "")).strip()
             dup_status = str(duplicate.get("upload_to_sap", "")).strip().lower()
             if dup_id != record_id and dup_status in ("failed", "skipped"):
                 log.info(f"     Duplicate found (id: {dup_id}) with status={dup_status} — retrying upload")
                 record_id = dup_id
+                is_duplicate = True
             elif dup_id != record_id:
                 log.info(f"     Duplicate found with status={dup_status} — skipping")
                 summary["skipped"] += 1
-                _add_result(by_recruiter, created_by, file_name, "Duplicate candidate")
+                _add_result(by_recruiter, created_by, file_name, f"Duplicate (already {dup_status})")
                 continue
 
         # ── 3a. Download resume from Supabase Storage ─────────
@@ -213,7 +216,7 @@ def run_pipeline() -> dict:
             _add_result(by_recruiter, created_by, file_name, "SAP bot unavailable")
             continue
 
-        sap_status = "Failed"
+        sap_status = "Pending"  # Keep Pending if temporary error (retry later)
         sap_error  = ""
         failed_screenshots = []
 
@@ -272,15 +275,38 @@ def run_pipeline() -> dict:
 
         # ── 3c. Update Supabase table ─────────────────────────
         patch = {
-            "upload_to_sap": sap_status,
             "modified_at"  : _now_iso(),
         }
-        if sap_error:
-            patch["error_message"] = sap_error[:500]
+
+        # Handle status update and error messages
+        if sap_status == "Done":
+            patch["upload_to_sap"] = "Done"
+            # Append success to existing error message if any
+            try:
+                existing = requests.get(
+                    f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{record_id}&select=error_message",
+                    headers=_headers(),
+                    timeout=10,
+                ).json()
+                if existing and existing[0].get("error_message"):
+                    old_msg = existing[0]["error_message"]
+                    patch["error_message"] = f"{old_msg}; upload successful on rerun at {_now_iso()}"
+            except Exception:
+                pass
+        elif sap_status in ("Pending",):
+            # Keep pending status on temporary errors, add error message
+            patch["upload_to_sap"] = "Pending"
+            if sap_error:
+                patch["error_message"] = sap_error[:500]
+        else:
+            # Skipped or other statuses
+            patch["upload_to_sap"] = sap_status
+            if sap_error:
+                patch["error_message"] = sap_error[:500]
 
         try:
             _patch_record(record_id, patch)
-            log.info(f"     DB updated → upload_to_sap = {sap_status}")
+            log.info(f"     DB updated → upload_to_sap = {patch.get('upload_to_sap', sap_status)}")
         except Exception as e:
             log.warning(f"     DB update failed: {e}")
 
@@ -292,6 +318,7 @@ def run_pipeline() -> dict:
 
         if   sap_status == "Done":    summary["done"]    += 1
         elif sap_status == "Skipped": summary["skipped"] += 1
+        elif sap_status == "Pending": summary["skipped"] += 1  # Count as skipped (will retry next run)
         else:                         summary["failed"]   += 1
 
     # ── 4. Quit SAP bot ───────────────────────────────────────
@@ -300,10 +327,17 @@ def run_pipeline() -> dict:
         except Exception: pass
 
     # ── 5. Send notification per recruiter ────────────────────
+    default_email = os.environ.get("SCHEDULER_EMAIL_CC", "").split(",")[0] if os.environ.get("SCHEDULER_EMAIL_CC") else ""
+
     for recruiter_email, info in by_recruiter.items():
-        if not recruiter_email:
-            log.warning(f"Skipping notification — no recruiter email (results: {info['results']})")
+        # Use fallback if recruiter email is missing
+        email_to_notify = recruiter_email.strip() if recruiter_email and recruiter_email.strip() else default_email
+
+        if not email_to_notify:
+            log.warning(f"Skipping notification — no email found (results: {info['results']})")
             continue
+
+        recruiter_email = email_to_notify
         report_user = {
             "email"       : recruiter_email,
             "name"        : recruiter_email,
