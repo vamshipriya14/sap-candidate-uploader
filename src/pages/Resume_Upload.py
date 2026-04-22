@@ -66,7 +66,12 @@ if not is_public:
     user_email = user.get("email", "").strip().lower()
 
     if ALLOWED_USERS:
-        allowed_list = [e.strip().lower() for e in ALLOWED_USERS.split(",") if e.strip()]
+        # Handle both list and comma-separated string formats
+        if isinstance(ALLOWED_USERS, list):
+            allowed_list = [e.strip().lower() for e in ALLOWED_USERS if e]
+        else:
+            allowed_list = [e.strip().lower() for e in ALLOWED_USERS.split(",") if e.strip()]
+
         if user_email not in allowed_list:
             st.error(f"❌ Access Denied: {user.get('email')} is not authorized to submit resumes.")
             st.info(f"📧 Contact your administrator if you believe this is an error.")
