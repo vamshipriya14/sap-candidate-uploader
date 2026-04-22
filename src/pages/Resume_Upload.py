@@ -176,13 +176,12 @@ with col_info:
     if jr_no and jr_meta:
         skill_name = _safe(jr_meta.get("skill_name") or jr_meta.get("skill", ""))
         job_details = _safe(jr_meta.get("job_details", ""))
-        client_recruiter = _safe(jr_meta.get("client_recruiter") or jr_meta.get("recruiter", ""))
 
-        # Build info text
-        info_text = f"**Skill:** {skill_name or '—'}\n"
+
+        # Build info text - only skill and job details
+        info_text = f"**Skill:** {skill_name or '—'}"
         if job_details:
-            info_text += f"\n**Job Details:** {job_details}\n"
-        info_text += f"\n**Recruiter:** {client_recruiter or '—'}"
+            info_text += f"\n\n**Job Details:** {job_details}"
 
         st.info(info_text)
 
