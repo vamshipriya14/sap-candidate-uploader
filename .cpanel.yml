@@ -1,0 +1,10 @@
+---
+deployment:
+  targets:
+    public_html/resupd.volibits.com:
+      domain: resupd.volibits.com
+      path: /
+      documentRoot: public_html/resupd.volibits.com
+
+tasks:
+  - exec: /opt/cpanel/ea-python311/root/usr/bin/pip install -r requirements.txt
