@@ -159,7 +159,10 @@ def upload_resume(file_name: str, content: bytes, jr_number: str) -> str:
 # 🔗 SIGNED URL (on demand)
 # ─────────────────────────────────────────────
 def get_resume_url(file_path: str) -> str:
-    url = f"{SUPABASE_URL}/storage/v1/object/sign/{BUCKET}/{file_path}"
+    from urllib.parse import quote
+    # URL encode the file_path to handle special characters
+    encoded_path = quote(file_path, safe='/')
+    url = f"{SUPABASE_URL}/storage/v1/object/sign/{BUCKET}/{encoded_path}"
 
     resp = requests.post(
         url,

@@ -370,7 +370,13 @@ if st.session_state.upload_rows:
                 resume_path = upload_resume(file_name, file_bytes, jr_folder_name(jr_no))
             except Exception as e:
                 if "409" in str(e):
-                    resume_path = f"{jr_folder_name(jr_no)}/{file_name}"
+                    # File already exists - construct proper path with cleaned filename
+                    import hashlib
+                    from resume_repository import _clean_file_name
+                    file_hash = hashlib.md5(file_bytes).hexdigest()[:8]
+                    safe_name = _clean_file_name(file_name)
+                    storage_name = f"{file_hash}_{safe_name}"
+                    resume_path = f"{jr_folder_name(jr_no)}/{storage_name}"
                 else:
                     summary_rows.append({"Candidate": cand_label, "Status": f"Upload failed: {e}", "ID": ""})
                     continue
