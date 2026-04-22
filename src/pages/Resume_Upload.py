@@ -32,26 +32,45 @@ from resume_repository import (
 )
 
 # ── Page setup ─────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Resume Upload", page_icon="📤", layout="wide")
+st.set_page_config(page_title="Resume Upload", page_icon="📤", layout="wide", initial_sidebar_state="collapsed")
 
-st.markdown("""
-<style>[data-testid="stSidebarNav"] { display: none; }</style>
-""", unsafe_allow_html=True)
+# ── Check for public access (external user mode) ────────────────────────────
+query_params = st.query_params
+is_public = query_params.get("public", "").lower() == "true"
 
-user = require_login()
-show_user_profile(user)
-show_navigation("resume_upload")
+# ── Hide sidebar and navigation for public users ────────────────────────────
+if is_public:
+    st.markdown("""
+    <style>
+        [data-testid="stSidebarNav"] { display: none !important; }
+        [data-testid="stSidebar"] { display: none !important; }
+        section[data-testid="stSidebar"] { display: none !important; }
+    </style>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown("""
+    <style>[data-testid="stSidebarNav"] { display: none; }</style>
+    """, unsafe_allow_html=True)
+
+# ── Auth check: bypass for public users ────────────────────────────────────
+if not is_public:
+    user = require_login()
+    show_user_profile(user)
+    show_navigation("resume_upload")
+else:
+    user = None  # No user for public access
 
 # ── User whitelist check ───────────────────────────────────────────────────
-ALLOWED_USERS = st.secrets.get("ALLOWED_FORM_USERS", os.environ.get("ALLOWED_FORM_USERS", ""))
-user_email = user.get("email", "").strip().lower()
+if not is_public:
+    ALLOWED_USERS = st.secrets.get("ALLOWED_FORM_USERS", os.environ.get("ALLOWED_FORM_USERS", ""))
+    user_email = user.get("email", "").strip().lower()
 
-if ALLOWED_USERS:
-    allowed_list = [e.strip().lower() for e in ALLOWED_USERS.split(",") if e.strip()]
-    if user_email not in allowed_list:
-        st.error(f"❌ Access Denied: {user.get('email')} is not authorized to submit resumes.")
-        st.info(f"📧 Contact your administrator if you believe this is an error.")
-        st.stop()
+    if ALLOWED_USERS:
+        allowed_list = [e.strip().lower() for e in ALLOWED_USERS.split(",") if e.strip()]
+        if user_email not in allowed_list:
+            st.error(f"❌ Access Denied: {user.get('email')} is not authorized to submit resumes.")
+            st.info(f"📧 Contact your administrator if you believe this is an error.")
+            st.stop()
 
 st.title("📤 Direct Resume Upload")
 st.caption(
@@ -138,9 +157,10 @@ with col_jr:
     skill = _safe(jr_meta.get("skill_name") or jr_meta.get("skill", ""))
 
 with col_email:
+    default_email = "sandhyam@revatechnosys.com" if is_public else user.get("email", "")
     recruiter_email = st.text_input(
         "Recruiter Email ID",
-        value=user.get("email", ""),
+        value=default_email,
         help="Your email to receive SAP upload notifications.",
     )
 
@@ -353,7 +373,7 @@ if st.session_state.upload_rows:
             with st.spinner("Triggering SAP upload workflow…"):
                 ok, err = trigger_github_workflow(
                     record_ids      = inserted_ids,
-                    recruiter_email = user.get("email", ""),
+                    recruiter_email = recruiter_email if is_public else user.get("email", ""),
                 )
             if ok:
                 st.success(
