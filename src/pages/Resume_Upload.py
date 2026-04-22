@@ -88,12 +88,15 @@ GH_REPO  = st.secrets.get("GH_REPO", os.environ.get("GH_REPO", ""))
 GH_TOKEN = st.secrets.get("GH_TOKEN", os.environ.get("GH_TOKEN", ""))
 GH_EVENT = st.secrets.get("GH_EVENT_TYPE", "resume-form-submitted")
 
-# ── Load JR master ──────────────────────────────────────────────────────────
+# ── Load JR master (active only) ────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def _load_jr_master():
     try:
         rows = fetch_active_jr_master()
-        return {str(r.get("jr_no", "")).strip(): r for r in rows if r.get("jr_no")}
+        # Filter only active JRs
+        active_jrs = {str(r.get("jr_no", "")).strip(): r for r in rows
+                      if r.get("jr_no") and r.get("status", "").lower() == "active"}
+        return active_jrs
     except Exception:
         return {}
 
@@ -171,10 +174,17 @@ with col_email:
 
 with col_info:
     if jr_no and jr_meta:
-        st.info(
-            f"**Skill:** {skill or '—'}  |  "
-            f"**Recruiter:** {_safe(jr_meta.get('client_recruiter')) or '—'}"
-        )
+        skill_name = _safe(jr_meta.get("skill_name") or jr_meta.get("skill", ""))
+        job_details = _safe(jr_meta.get("job_details", ""))
+        client_recruiter = _safe(jr_meta.get("client_recruiter") or jr_meta.get("recruiter", ""))
+
+        # Build info text
+        info_text = f"**Skill:** {skill_name or '—'}\n"
+        if job_details:
+            info_text += f"\n**Job Details:** {job_details}\n"
+        info_text += f"\n**Recruiter:** {client_recruiter or '—'}"
+
+        st.info(info_text)
 
 st.divider()
 
