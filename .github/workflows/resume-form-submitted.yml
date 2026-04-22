@@ -42,6 +42,7 @@ jobs:
       - name: Run form scheduler (SAP upload + notification)
         env:
           # Supabase
+          INBOX_EMAIL:               ${{ secrets.INBOX_EMAIL }}
           SUPABASE_URL              : ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY : ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_TABLE            : ${{ secrets.SUPABASE_RESUME_TABLE }}
