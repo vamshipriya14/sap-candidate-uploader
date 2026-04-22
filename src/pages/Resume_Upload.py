@@ -58,7 +58,7 @@ if not is_public:
     show_user_profile(user)
     show_navigation("resume_upload")
 else:
-    user = None  # No user for public access
+    user = {"email": "", "name": ""}  # Placeholder for public access (will be set later)
 
 # ── User whitelist check ───────────────────────────────────────────────────
 if not is_public:
@@ -273,6 +273,14 @@ if st.session_state.upload_rows:
     # SECTION 3 — Save to DB + Storage, then trigger GitHub
     # ══════════════════════════════════════════════════════════════════════
     if do_submit and jr_no:
+        # Update user dict with recruiter email for public users
+        if is_public:
+            recruiter_name = _extract_name_from_email(recruiter_email)
+            user = {
+                "email": recruiter_email,
+                "name": recruiter_name,
+            }
+
         edited_records = edited_df.to_dict("records")
         today_text = date.today().strftime("%d-%b-%Y")
 
