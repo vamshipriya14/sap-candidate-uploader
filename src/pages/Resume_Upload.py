@@ -177,10 +177,22 @@ if jr_no and jr_meta:
     skill_name = _safe(jr_meta.get("skill_name") or jr_meta.get("skill", ""))
     job_details = _safe(jr_meta.get("job_details", ""))
 
+    # Trim job details to first 150 characters
+    job_details_trimmed = (job_details[:150] + "...") if len(job_details) > 150 else job_details
+
     # Build info text - only skill and job details
     info_text = f"**Skill:** {skill_name or '—'}"
-    if job_details:
-        info_text += f"\n\n**Job Details:** {job_details}"
+    if job_details_trimmed:
+        info_text += f"\n**Job Details:** {job_details_trimmed}"
+
+    # Custom styling for compact display
+    st.markdown("""
+    <style>
+    [data-testid="stAlert"] { padding: 0.75rem 1rem !important; margin: 0 !important; }
+    [data-testid="stAlert"] p { margin: 0.25rem 0 !important; font-size: 0.875rem; line-height: 1.2; }
+    [data-testid="stAlert"] strong { font-size: 0.875rem; }
+    </style>
+    """, unsafe_allow_html=True)
 
     st.info(info_text)
 
