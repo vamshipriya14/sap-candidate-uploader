@@ -152,7 +152,7 @@ if "upload_rows" not in st.session_state:
 # ══════════════════════════════════════════════════════════════════════════
 # SECTION 1 — JR selection + Recruiter Email + file upload
 # ══════════════════════════════════════════════════════════════════════════
-col_jr, col_email, col_info = st.columns([1, 1.5, 1.5])
+col_jr, col_email = st.columns([1, 1.5])
 
 with col_jr:
     selected_jr = st.selectbox(
@@ -172,18 +172,17 @@ with col_email:
         help="Your email to receive SAP upload notifications.",
     )
 
-with col_info:
-    if jr_no and jr_meta:
-        skill_name = _safe(jr_meta.get("skill_name") or jr_meta.get("skill", ""))
-        job_details = _safe(jr_meta.get("job_details", ""))
+# Display skill and job details in next line (full width)
+if jr_no and jr_meta:
+    skill_name = _safe(jr_meta.get("skill_name") or jr_meta.get("skill", ""))
+    job_details = _safe(jr_meta.get("job_details", ""))
 
+    # Build info text - only skill and job details
+    info_text = f"**Skill:** {skill_name or '—'}"
+    if job_details:
+        info_text += f"\n\n**Job Details:** {job_details}"
 
-        # Build info text - only skill and job details
-        info_text = f"**Skill:** {skill_name or '—'}"
-        if job_details:
-            info_text += f"\n\n**Job Details:** {job_details}"
-
-        st.info(info_text)
+    st.info(info_text)
 
 st.divider()
 
