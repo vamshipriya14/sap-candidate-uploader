@@ -42,6 +42,17 @@ user = require_login()
 show_user_profile(user)
 show_navigation("resume_upload")
 
+# ── User whitelist check ───────────────────────────────────────────────────
+ALLOWED_USERS = st.secrets.get("ALLOWED_FORM_USERS", os.environ.get("ALLOWED_FORM_USERS", ""))
+user_email = user.get("email", "").strip().lower()
+
+if ALLOWED_USERS:
+    allowed_list = [e.strip().lower() for e in ALLOWED_USERS.split(",") if e.strip()]
+    if user_email not in allowed_list:
+        st.error(f"❌ Access Denied: {user.get('email')} is not authorized to submit resumes.")
+        st.info(f"📧 Contact your administrator if you believe this is an error.")
+        st.stop()
+
 st.title("📤 Direct Resume Upload")
 st.caption(
     "Upload resumes → save to Supabase → SAP upload runs automatically in the background. "
