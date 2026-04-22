@@ -62,18 +62,29 @@ else:
 
 # ── User whitelist check ───────────────────────────────────────────────────
 if not is_public:
-    ALLOWED_USERS = st.secrets.get("ALLOWED_FORM_USERS", os.environ.get("ALLOWED_FORM_USERS", ""))
     user_email = user.get("email", "").strip().lower()
 
-    if ALLOWED_USERS:
-        # Handle both list and comma-separated string formats
-        if isinstance(ALLOWED_USERS, list):
-            allowed_list = [e.strip().lower() for e in ALLOWED_USERS if e]
-        else:
-            allowed_list = [e.strip().lower() for e in ALLOWED_USERS.split(",") if e.strip()]
+    # Allow all @volibits.com emails by default
+    is_internal = user_email.endswith("@volibits.com")
 
-        if user_email not in allowed_list:
-            st.error(f"❌ Access Denied: {user.get('email')} is not authorized to submit resumes.")
+    if not is_internal:
+        # For external users, check ALLOWED_FORM_USERS
+        ALLOWED_USERS = st.secrets.get("ALLOWED_FORM_USERS", os.environ.get("ALLOWED_FORM_USERS", ""))
+
+        if ALLOWED_USERS:
+            # Handle both list and comma-separated string formats
+            if isinstance(ALLOWED_USERS, list):
+                allowed_list = [e.strip().lower() for e in ALLOWED_USERS if e]
+            else:
+                allowed_list = [e.strip().lower() for e in ALLOWED_USERS.split(",") if e.strip()]
+
+            if user_email not in allowed_list:
+                st.error(f"❌ Access Denied: {user.get('email')} is not authorized to submit resumes.")
+                st.info(f"📧 Contact your administrator if you believe this is an error.")
+                st.stop()
+        else:
+            # If ALLOWED_USERS is not set and user is external, deny access
+            st.error(f"❌ Access Denied: External users must be explicitly approved.")
             st.info(f"📧 Contact your administrator if you believe this is an error.")
             st.stop()
 
