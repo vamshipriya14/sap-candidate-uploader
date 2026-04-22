@@ -345,17 +345,13 @@ def run_pipeline() -> dict:
         except Exception: pass
 
     # ── 5. Send notification per recruiter ────────────────────
-    default_email = os.environ.get("SCHEDULER_EMAIL_CC", "").split(",")[0] if os.environ.get("SCHEDULER_EMAIL_CC") else ""
-
     for recruiter_email, info in by_recruiter.items():
-        # Use fallback if recruiter email is missing
-        email_to_notify = recruiter_email.strip() if recruiter_email and recruiter_email.strip() else default_email
+        recruiter_email = recruiter_email.strip() if recruiter_email else ""
 
-        if not email_to_notify:
-            log.warning(f"Skipping notification — no email found (results: {info['results']})")
+        if not recruiter_email:
+            log.warning(f"Skipping notification — no recruiter email found (results: {info['results']})")
             continue
 
-        recruiter_email = email_to_notify
         report_user = {
             "email"       : recruiter_email,
             "name"        : recruiter_email,
@@ -368,7 +364,7 @@ def run_pipeline() -> dict:
                 results=info["results"],
                 submit_mode=SUBMIT_TO_SAP,
                 attachments=info["screenshots"],
-                cc=EMAIL_CC or None,
+                cc=EMAIL_CC if EMAIL_CC else None,
             )
             if ok:
                 log.info(f"📧 Notification sent to {recruiter_email}")
