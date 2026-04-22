@@ -407,7 +407,7 @@ def download_resume(file_path: str) -> bytes:
 def fetch_active_jr_master() -> list[dict]:
     response = requests.get(
         f"{SUPABASE_URL}/rest/v1/jr_master"
-        "?select=jr_no,client_recruiter,recruiter_email,skill_name,jr_status",
+        "?select=jr_no,client_recruiter,recruiter_email,skill_name,jr_status,job_details",
         headers=_headers(),
         timeout=30,
     )
