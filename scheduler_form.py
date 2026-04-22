@@ -52,22 +52,26 @@ log = logging.getLogger("scheduler_form")
 # ─────────────────────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────────────────────
-SUBMIT_TO_SAP  = os.environ.get("SCHEDULER_SUBMIT_TO_SAP", "true").lower() == "true"
-MAX_RECORDS    = int(os.environ.get("SCHEDULER_MAX_RECORDS", "50"))
-EMAIL_CC       = [e for e in os.environ.get("SCHEDULER_EMAIL_CC", "").split(",") if e.strip()]
+SUBMIT_TO_SAP = os.environ.get("SCHEDULER_SUBMIT_TO_SAP", "true").lower() == "true"
+MAX_RECORDS   = int(os.environ.get("SCHEDULER_MAX_RECORDS", "50"))
+EMAIL_CC      = [e for e in os.environ.get("SCHEDULER_EMAIL_CC", "").split(",") if e.strip()]
 
 NON_CRITICAL_SAP_ERRORS = ["requisition id", "not found in job list"]
 DEAD_SESSION_ERRORS     = ["invalid session id", "no such session", "disconnected"]
 
 BUCKET = "resumes"
+
+
 # ─────────────────────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────────────────────
 def _safe(val) -> str:
     return str(val).strip() if val else ""
 
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
 
 def _patch_record(record_id: str, fields: dict) -> None:
     requests.patch(
@@ -76,6 +80,7 @@ def _patch_record(record_id: str, fields: dict) -> None:
         json=fields,
         timeout=15,
     )
+
 
 def _start_bot() -> SAPBot:
     b = SAPBot()
@@ -104,6 +109,18 @@ def fetch_form_pending_records(limit: int = 50) -> list:
     if resp.status_code != 200:
         raise Exception(resp.text)
     return resp.json()
+
+
+def _resolve_recruiter_email(record: dict) -> str:
+    """
+    Figure out where to send the upload-completion notification.
+    Priority: created_by → recruiter_email → modified_by.
+    """
+    for key in ("created_by", "recruiter_email", "modified_by"):
+        val = _safe(record.get(key))
+        if val and "@" in val:
+            return val
+    return ""
 
 
 def _add_result(by_recruiter, recruiter_email, file_name, status, screenshots=None):
@@ -158,20 +175,20 @@ def run_pipeline() -> dict:
                 summary["errors"].append(f"SAP start: {e}")
 
     # ── 3. Process each record ────────────────────────────────
-    # Group by created_by so one notification goes per recruiter
+    # Group by recruiter email so one notification goes per recruiter
     by_recruiter: dict[str, dict] = {}
 
     for record in pending:
-        record_id   = _safe(record.get("id"))
-        jr_no       = _safe(record.get("jr_number"))
-        first_name  = _safe(record.get("first_name"))
-        last_name   = _safe(record.get("last_name"))
-        email       = _safe(record.get("email"))
-        phone       = _safe(record.get("phone"))
-        resume_path = _safe(record.get("resume_path"))
-        file_name   = _safe(record.get("file_name"))
-        created_by  = _safe(record.get("created_by"))    # recruiter who submitted
-        cand_label  = f"{first_name} {last_name}".strip() or file_name
+        record_id        = _safe(record.get("id"))
+        jr_no            = _safe(record.get("jr_number"))
+        first_name       = _safe(record.get("first_name"))
+        last_name        = _safe(record.get("last_name"))
+        email            = _safe(record.get("email"))
+        phone            = _safe(record.get("phone"))
+        resume_path      = _safe(record.get("resume_path"))
+        file_name        = _safe(record.get("file_name"))
+        recruiter_email  = _resolve_recruiter_email(record)   # ← robust resolution
+        cand_label       = f"{first_name} {last_name}".strip() or file_name
 
         log.info(f"  → {cand_label} | JR: {jr_no} | id: {record_id}")
 
@@ -179,45 +196,29 @@ def run_pipeline() -> dict:
         duplicate = fetch_existing_record(jr_no, email, phone)
         is_duplicate = False
         if duplicate:
-            dup_id = str(duplicate.get("id", "")).strip()
+            dup_id     = str(duplicate.get("id", "")).strip()
             dup_status = str(duplicate.get("upload_to_sap", "")).strip().lower()
             if dup_id != record_id and dup_status in ("failed", "skipped"):
                 log.info(f"     Duplicate found (id: {dup_id}) with status={dup_status} — retrying upload")
-                record_id = dup_id
+                record_id    = dup_id
                 is_duplicate = True
             elif dup_id != record_id:
                 log.info(f"     Duplicate found with status={dup_status} — skipping")
                 summary["skipped"] += 1
-                _add_result(by_recruiter, created_by, file_name, f"Duplicate (already {dup_status})")
+                _add_result(by_recruiter, recruiter_email, file_name, f"Duplicate (already {dup_status})")
                 continue
 
         # ── 3a. Download resume from Supabase Storage ─────────
         file_bytes = None
         if resume_path:
+            # Strip any legacy "/object/sign/resumes/" prefix + query string
+            clean_path = resume_path
+            if clean_path.startswith("/object/sign/"):
+                clean_path = clean_path.replace("/object/sign/resumes/", "").split("?")[0]
+
+            log.info(f"     Resume path: {clean_path}")
             try:
-                # Download directly with auth headers instead of signed URLs
-                from resume_repository import SUPABASE_URL, _headers
-
-                # Clean path if needed
-                clean_path = resume_path
-                if clean_path.startswith("/object/sign/"):
-                    clean_path = clean_path.replace("/object/sign/resumes/", "")
-                    clean_path = clean_path.split("?")[0]
-
-                log.info(f"     Resume path: {clean_path}")
-
-                # Download with authentication headers
-                url = f"{SUPABASE_URL}/storage/v1/object/authenticated/resumes/{clean_path}"
-                resp = requests.get(url, headers=_headers(json=False), timeout=30)
-
-                if resp.status_code != 200:
-                    log.warning(f"     Auth download failed ({resp.status_code}), trying public...")
-                    # Fallback to public endpoint
-                    url = f"{SUPABASE_URL}/storage/v1/object/public/resumes/{clean_path}"
-                    resp = requests.get(url, timeout=30)
-
-                resp.raise_for_status()
-                file_bytes = resp.content
+                file_bytes = download_resume(clean_path)
                 log.info(f"     Downloaded resume ({len(file_bytes):,} bytes)")
             except Exception as e:
                 log.warning(f"     Resume download failed: {e}")
@@ -228,14 +229,14 @@ def run_pipeline() -> dict:
             _patch_record(record_id, {
                 "upload_to_sap": "Skipped",
                 "error_message": "SAP bot unavailable",
-                "modified_at"  : _now_iso(),
+                "modified_at":   _now_iso(),
             })
             summary["skipped"] += 1
-            _add_result(by_recruiter, created_by, file_name, "SAP bot unavailable")
+            _add_result(by_recruiter, recruiter_email, file_name, "SAP bot unavailable")
             continue
 
-        sap_status = "Pending"  # Keep Pending if temporary error (retry later)
-        sap_error  = ""
+        sap_status         = "Pending"  # Keep Pending on temporary errors (retry later)
+        sap_error          = ""
         failed_screenshots = []
 
         for attempt in range(2):
@@ -246,13 +247,13 @@ def run_pipeline() -> dict:
                     file_obj.name = file_name
 
                 upload_to_sap(bot, {
-                    "jr_number"  : jr_no,
-                    "first_name" : first_name,
-                    "last_name"  : last_name,
-                    "email"      : email,
-                    "phone"      : phone,
+                    "jr_number":   jr_no,
+                    "first_name":  first_name,
+                    "last_name":   last_name,
+                    "email":       email,
+                    "phone":       phone,
                     "resume_file": file_obj,
-                    "submit"     : SUBMIT_TO_SAP,
+                    "submit":      SUBMIT_TO_SAP,
                 })
                 sap_status = "Done"
                 log.info(f"     ✅ SAP upload success: {cand_label}")
@@ -284,7 +285,7 @@ def run_pipeline() -> dict:
                     snap_name = f"{jr_no}_{cand_label}_attempt{attempt + 1}"
                     snap_path = bot._screenshot(snap_name)
                     failed_screenshots.append({
-                        "name"   : f"{snap_name}.png",
+                        "name":    f"{snap_name}.png",
                         "content": snap_path.read_bytes(),
                     })
                 except Exception:
@@ -293,7 +294,7 @@ def run_pipeline() -> dict:
 
         # ── 3c. Update Supabase table ─────────────────────────
         patch = {
-            "modified_at"  : _now_iso(),
+            "modified_at": _now_iso(),
         }
 
         # Handle status update and error messages
@@ -329,7 +330,7 @@ def run_pipeline() -> dict:
             log.warning(f"     DB update failed: {e}")
 
         _add_result(
-            by_recruiter, created_by, file_name,
+            by_recruiter, recruiter_email, file_name,
             "Success" if sap_status == "Done" else sap_error[:100],
             screenshots=failed_screenshots,
         )
@@ -337,7 +338,7 @@ def run_pipeline() -> dict:
         if   sap_status == "Done":    summary["done"]    += 1
         elif sap_status == "Skipped": summary["skipped"] += 1
         elif sap_status == "Pending": summary["skipped"] += 1  # Count as skipped (will retry next run)
-        else:                         summary["failed"]   += 1
+        else:                         summary["failed"]  += 1
 
     # ── 4. Quit SAP bot ───────────────────────────────────────
     if bot:
@@ -353,8 +354,8 @@ def run_pipeline() -> dict:
             continue
 
         report_user = {
-            "email"       : recruiter_email,
-            "name"        : recruiter_email,
+            "email":        recruiter_email,
+            "name":         recruiter_email,
             "access_token": "",
         }
         try:

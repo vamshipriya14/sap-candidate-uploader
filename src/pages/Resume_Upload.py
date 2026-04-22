@@ -11,6 +11,7 @@ This page requires NO Selenium / Chrome on the Streamlit host — the
 heavy SAP work happens on GitHub Actions.
 """
 
+import hashlib
 import os
 import sys
 from datetime import date, datetime, timezone
@@ -24,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from auth import require_login, show_navigation, show_user_profile
 from resume_parser import parse_resume
 from resume_repository import (
+    _clean_file_name,
     fetch_active_jr_master,
     fetch_existing_record,
     insert_resume_record,
@@ -95,7 +97,7 @@ st.caption(
 )
 
 # ── GitHub dispatch config ─────────────────────────────────────────────────
-GH_REPO  = st.secrets.get("GH_REPO", os.environ.get("GH_REPO", ""))
+GH_REPO  = st.secrets.get("GH_REPO",  os.environ.get("GH_REPO", ""))
 GH_TOKEN = st.secrets.get("GH_TOKEN", os.environ.get("GH_TOKEN", ""))
 GH_EVENT = st.secrets.get("GH_EVENT_TYPE", "resume-form-submitted")
 
@@ -105,25 +107,29 @@ def _load_jr_master():
     try:
         rows = fetch_active_jr_master()
         # Filter only active JRs using jr_status column
-        active_jrs = {str(r.get("jr_no", "")).strip(): r for r in rows
-                      if r.get("jr_no") and r.get("jr_status", "").lower() == "active"}
+        active_jrs = {
+            str(r.get("jr_no", "")).strip(): r
+            for r in rows
+            if r.get("jr_no") and r.get("jr_status", "").lower() == "active"
+        }
         return active_jrs
     except Exception:
         return {}
 
-jr_master = _load_jr_master()
+jr_master  = _load_jr_master()
 jr_options = ["— select —"] + sorted(jr_master.keys())
+
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 def _safe(val) -> str:
     return str(val).strip() if val else ""
 
+
 def _extract_name_from_email(email: str) -> str:
-    """Extract name from email: john.doe@company.com → John Doe"""
+    """Extract a display name from an email: john.doe@company.com → John Doe"""
     if not email or "@" not in email:
         return ""
     name_part = email.split("@")[0]
-    # Convert john.doe → John Doe
     name = name_part.replace(".", " ").replace("-", " ").replace("_", " ")
     return " ".join(word.capitalize() for word in name.split())
 
@@ -136,17 +142,17 @@ def trigger_github_workflow(record_ids: list, recruiter_email: str) -> tuple[boo
     resp = requests.post(
         f"https://api.github.com/repos/{GH_REPO}/dispatches",
         headers={
-            "Authorization"        : f"Bearer {GH_TOKEN}",
-            "Accept"               : "application/vnd.github+json",
-            "X-GitHub-Api-Version" : "2022-11-28",
-            "Content-Type"         : "application/json",
+            "Authorization":        f"Bearer {GH_TOKEN}",
+            "Accept":               "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type":         "application/json",
         },
         json={
-            "event_type"    : GH_EVENT,
+            "event_type": GH_EVENT,
             "client_payload": {
-                "record_ids"     : record_ids,
+                "record_ids":      record_ids,
                 "recruiter_email": recruiter_email,
-                "submitted_at"   : datetime.now(timezone.utc).isoformat(),
+                "submitted_at":    datetime.now(timezone.utc).isoformat(),
             },
         },
         timeout=15,
@@ -171,9 +177,9 @@ with col_jr:
         jr_options,
         help="All uploaded resumes will be tagged to this JR number.",
     )
-    jr_no = "" if selected_jr == "— select —" else selected_jr
+    jr_no   = "" if selected_jr == "— select —" else selected_jr
     jr_meta = jr_master.get(jr_no, {})
-    skill = _safe(jr_meta.get("skill_name") or jr_meta.get("skill", ""))
+    skill   = _safe(jr_meta.get("skill_name") or jr_meta.get("skill", ""))
 
 with col_email:
     default_email = "sandhyam@revatechnosys.com" if is_public else user.get("email", "")
@@ -185,7 +191,7 @@ with col_email:
 
 # Display skill and job details in next line (collapsible)
 if jr_no and jr_meta:
-    skill_name = _safe(jr_meta.get("skill_name") or jr_meta.get("skill", ""))
+    skill_name  = _safe(jr_meta.get("skill_name") or jr_meta.get("skill", ""))
     job_details = _safe(jr_meta.get("job_details", ""))
 
     # Display skill in a compact info box
@@ -206,8 +212,8 @@ uploaded_files = st.file_uploader(
 if uploaded_files:
     if st.button("⚡ Parse All Resumes", type="primary", use_container_width=True):
         today_text = date.today().strftime("%d-%b-%Y")
-        rows = []
-        progress = st.progress(0, text="Parsing…")
+        rows       = []
+        progress   = st.progress(0, text="Parsing…")
 
         for i, f in enumerate(uploaded_files):
             progress.progress((i + 1) / len(uploaded_files), text=f"Parsing {f.name}…")
@@ -220,15 +226,15 @@ if uploaded_files:
 
             full_name = f"{parsed.get('first_name','')} {parsed.get('last_name','')}".strip()
             rows.append({
-                "Candidate Name" : full_name,
-                "Email ID"       : parsed.get("email", ""),
-                "Contact Number" : parsed.get("phone", ""),
+                "Candidate Name":  full_name,
+                "Email ID":        parsed.get("email", ""),
+                "Contact Number":  parsed.get("phone", ""),
                 "Recruiter Email": "",  # Empty, user fills in
-                "Resume File"    : f.name,
-                "_first"         : parsed.get("first_name", ""),
-                "_last"          : parsed.get("last_name", ""),
-                "_today"         : today_text,
-                "_file_bytes"    : f.getvalue(),
+                "Resume File":     f.name,
+                "_first":          parsed.get("first_name", ""),
+                "_last":           parsed.get("last_name", ""),
+                "_today":          today_text,
+                "_file_bytes":     f.getvalue(),
             })
 
         progress.empty()
@@ -252,11 +258,11 @@ if st.session_state.upload_rows:
         use_container_width=True,
         hide_index=True,
         column_config={
-            "S.No"          : st.column_config.NumberColumn(disabled=True, width="small"),
+            "S.No":           st.column_config.NumberColumn(disabled=True, width="small"),
             "Candidate Name": st.column_config.TextColumn(width="medium"),
-            "Email ID"      : st.column_config.TextColumn(width="medium"),
+            "Email ID":       st.column_config.TextColumn(width="medium"),
             "Contact Number": st.column_config.TextColumn(width="medium"),
-            "Resume File"   : st.column_config.TextColumn(disabled=True, width="medium"),
+            "Resume File":    st.column_config.TextColumn(disabled=True, width="medium"),
         },
         num_rows="fixed",
         key="upload_table",
@@ -284,21 +290,22 @@ if st.session_state.upload_rows:
     # SECTION 3 — Save to DB + Storage, then trigger GitHub
     # ══════════════════════════════════════════════════════════════════════
     if do_submit and jr_no:
-        # Update user dict with recruiter email for public users
-        if is_public:
-            recruiter_name = _extract_name_from_email(recruiter_email)
-            user = {
-                "email": recruiter_email,
-                "name": recruiter_name,
-            }
+        # 🔴 FIX: ALWAYS build the DB-user dict from the form's "Recruiter Email ID",
+        #         whether the submitter is public or logged-in. The logged-in SSO
+        #         account may differ from who the notification should go to.
+        recruiter_name = _extract_name_from_email(recruiter_email)
+        user_for_db = {
+            "email": recruiter_email,
+            "name":  recruiter_name or user.get("name", ""),
+        }
 
         edited_records = edited_df.to_dict("records")
-        today_text = date.today().strftime("%d-%b-%Y")
+        today_text     = date.today().strftime("%d-%b-%Y")
 
         # Merge edits back into internal rows (preserve _file_bytes etc.)
         merged = []
         for i, internal in enumerate(rows):
-            edited = edited_records[i] if i < len(edited_records) else {}
+            edited     = edited_records[i] if i < len(edited_records) else {}
             full_name  = _safe(edited.get("Candidate Name", ""))
             name_parts = full_name.split(" ", 1)
             first_name = name_parts[0] if name_parts else internal["_first"]
@@ -306,19 +313,18 @@ if st.session_state.upload_rows:
             merged.append({
                 **internal,
                 "Candidate Name": full_name,
-                "Email ID"      : _safe(edited.get("Email ID",       internal["Email ID"])),
+                "Email ID":       _safe(edited.get("Email ID",       internal["Email ID"])),
                 "Contact Number": _safe(edited.get("Contact Number", internal["Contact Number"])),
-                "_first"        : first_name,
-                "_last"         : last_name,
+                "_first":         first_name,
+                "_last":          last_name,
             })
 
-        progress_bar  = st.progress(0, text="Saving to database…")
-        inserted_ids  = []
-        summary_rows  = []
+        progress_bar = st.progress(0, text="Saving to database…")
+        inserted_ids = []
+        summary_rows = []
 
         client_recruiter       = _safe(jr_meta.get("client_recruiter") or jr_meta.get("recruiter"))
         client_recruiter_email = _safe(jr_meta.get("client_recruiter_email") or jr_meta.get("recruiter_email"))
-        recruiter_name         = _extract_name_from_email(recruiter_email)
 
         for idx, row in enumerate(merged):
             progress_bar.progress(
@@ -335,23 +341,23 @@ if st.session_state.upload_rows:
             cand_label = row["Candidate Name"] or file_name
 
             row_data = {
-                "JR Number"              : jr_no,
-                "Date"                   : today_text,
-                "Skill"                  : skill,
-                "File Name"              : file_name,
-                "First Name"             : first_name,
-                "Last Name"              : last_name,
-                "Email"                  : email,
-                "Phone"                  : phone,
-                "upload_to_sap"          : "Pending",
-                "recruiter"              : recruiter_name,
-                "recruiter_email"        : recruiter_email,
-                "client_recruiter"       : client_recruiter,
-                "client_recruiter_email" : client_recruiter_email,
-                "Actual Status"          : "Not Called",
-                "Call Iteration"         : "First Call",
-                "created_by"             : recruiter_email,
-                "modified_by"            : recruiter_email,
+                "JR Number":              jr_no,
+                "Date":                   today_text,
+                "Skill":                  skill,
+                "File Name":              file_name,
+                "First Name":             first_name,
+                "Last Name":              last_name,
+                "Email":                  email,
+                "Phone":                  phone,
+                "upload_to_sap":          "Pending",
+                "recruiter":              recruiter_name,
+                "recruiter_email":        recruiter_email,
+                "client_recruiter":       client_recruiter,
+                "client_recruiter_email": client_recruiter_email,
+                "Actual Status":          "Not Called",
+                "Call Iteration":         "First Call",
+                "created_by":             recruiter_email,
+                "modified_by":            recruiter_email,
             }
 
             # ── 1. Duplicate check ────────────────────────────────────────
@@ -370,20 +376,19 @@ if st.session_state.upload_rows:
                 resume_path = upload_resume(file_name, file_bytes, jr_folder_name(jr_no))
             except Exception as e:
                 if "409" in str(e):
-                    # File already exists - construct proper path with cleaned filename
-                    import hashlib
-                    from resume_repository import _clean_file_name
-                    file_hash = hashlib.md5(file_bytes).hexdigest()[:8]
-                    safe_name = _clean_file_name(file_name)
-                    storage_name = f"{file_hash}_{safe_name}"
-                    resume_path = f"{jr_folder_name(jr_no)}/{storage_name}"
+                    # 🔴 FIX: mirror upload_resume's internal naming (<hash>_<cleanname>),
+                    #         not the raw filename — otherwise resume_path in DB will not
+                    #         match the actual storage path and later downloads will 400.
+                    file_hash   = hashlib.md5(file_bytes).hexdigest()[:8]
+                    safe_name   = _clean_file_name(file_name)
+                    resume_path = f"{jr_folder_name(jr_no)}/{file_hash}_{safe_name}"
                 else:
                     summary_rows.append({"Candidate": cand_label, "Status": f"Upload failed: {e}", "ID": ""})
                     continue
 
             # ── 3. Insert into Supabase table ─────────────────────────────
             try:
-                db_record    = insert_resume_record(row_data, user, resume_path=resume_path)
+                db_record    = insert_resume_record(row_data, user_for_db, resume_path=resume_path)
                 db_record_id = str(db_record.get("id", "")).strip()
                 if not db_record_id:
                     recovered    = fetch_existing_record(jr_no, email, phone)
@@ -411,13 +416,13 @@ if st.session_state.upload_rows:
             with st.spinner("Triggering SAP upload workflow…"):
                 ok, err = trigger_github_workflow(
                     record_ids      = inserted_ids,
-                    recruiter_email = recruiter_email if is_public else user.get("email", ""),
+                    recruiter_email = recruiter_email,   # always use the form's email
                 )
             if ok:
                 st.success(
                     f"✅ {len(inserted_ids)} candidate(s) queued. "
                     "SAP upload is running in the background — "
-                    f"you will receive an email at **{user.get('email')}** when complete."
+                    f"you will receive an email at **{recruiter_email}** when complete."
                 )
             else:
                 st.error(f"Records saved, but GitHub trigger failed: {err}")
