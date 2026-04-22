@@ -93,9 +93,9 @@ GH_EVENT = st.secrets.get("GH_EVENT_TYPE", "resume-form-submitted")
 def _load_jr_master():
     try:
         rows = fetch_active_jr_master()
-        # Filter only active JRs
+        # Filter only active JRs using jr_status column
         active_jrs = {str(r.get("jr_no", "")).strip(): r for r in rows
-                      if r.get("jr_no") and r.get("status", "").lower() == "active"}
+                      if r.get("jr_no") and r.get("jr_status", "").lower() == "active"}
         return active_jrs
     except Exception:
         return {}
