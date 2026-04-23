@@ -1,11 +1,9 @@
-import base64
 import re
 import sys
 import os
 from datetime import date
 
 import pandas as pd
-import requests
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -63,7 +61,7 @@ def _get_default_signature_template(user_dict: dict) -> str:
     email = user_dict.get("email", "Email")
     phone = user_dict.get("phone") or "+91 0000000000"
 
-    _logo = "data:image/jpeg;base64,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"
+    _logo = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/wAARCABkAMgDASIAAhEBAxEB/8QAHAAAAgMBAQEBAAAAAAAAAAAABQYDBAcCAQj/xABDEAACAQMDAgQEBAMFBgcAAAABAgMABBEFEiExBhNBUWEiMnGBkRQjQlKhscEHFTNigtHwJCU0Q3KS4fFTY6Ky/8QAGQEAAwEBAQAAAAAAAAAAAAAAAQIDAAQF/8QAIhEAAgICAwEBAQEAAAAAAAAAAAECEQMhEjFBUWET/9oADAMBAAIRAxEAPwDYaKKKACiiigAooooAKKKKACiiigApRcNsieT+FSaUXn+Xf/KaAPMaXSXaQvI7F2Y5LMck1EpbqaM5WSRfkxFcKGTB4NUm6tXuH2qQqjmTFbKbWpJJN6FGmaWbu4WBdqAs55JHYVo6z1bbaP0vbLbIiz3MYCxL+FfU/7VlLy2ltZSkoIGeD2IqL0a9tqdY0nS2sNLnE1uM5LDJBJz/etZVFRWiPPKTb2XfTupk1DUJNR1S7d5pyc7iTt9uleX3VN3dXFxFJNIYYXKxb8bSAcZ4rDnU7vS9bgtroedYXLNG4B5j3Hg/Q1e6RqTSWdxpVzHG1zbxb7SeRchWHHzU3FJpPQsm9t6OhfVJI7QXNpKisjkOI0wWFKLXVL3W55bq5uFiit22xQICQP7zVJnPh2sdzG4RvNQqW+HpBn7etTalNdR3FtFaojSXCkMzDKxEdz+lBb9J6LTXcFnpUtveyujtMEhCjJJIHIrI3rRXl1NHaRyyxwRjLySN8OeOn1NSalo8cMkFzqMIkh09GeRySC5HYH1J6D5AmiM0aKLTUiLK5t0jdGJBIPU59aznH6UW9G6UrG6l0y+1FZr5QRFFI5CPGCT8WOvXj9K1yt30e4URSBn7cDNTh1S/hnRr/VXZbtHKL/mBPBHqKhvEOZbCKGN5Gdm+MH+HioqmVzb9V3Wn6fPc2V1MhjTMaMqnBxz7UZXS3GqXtxa2ryPbxqZJlVirPk4APrjJNTa3pzakbq1j8meWJzGr+YpBGeaXaXbx6lLdWssMfmXMrRF2A+FgMYrT+BLq7JuavsLbxaWqtqMVtbXMahWkjj+IJ2ySOetdWd/aJ5ltCGt1VcIqFCcDgHFQ8k8VrcRLHJCqmENFGqt8XY85q3y2U09tY5eNfNs22JkA8kE4rlJST3EqHNZKgDSW9zeW7gKJCN6EDqegqaadpLqeO1jjJjQl2f8K+nPU1K0C0sLfT5oinEshI3sV68Vzr+tQ2ekX1/blpIrOF5WOzsMkgfjRUb1Q0ktzYX17b2ED3N1MkUMYy0jnAFS1jvh1o9l4it/Gn5SIhJYiSVUn3A9T7e1aVWdVVJVRUUBVUYAHtUVhRRRUAFFFFABRRRQAUUUUAFFFFABWa1aRntbsqxU7CF5xzj8K0tY3q+/s9X1JIpZ1Q26iMZIzkt6fjQBFHq0EeiSXk4aJ1kbapxuPHH7VU3Op3txqrPrVzJLdlPNTT4GPl7OCR2HvmqrVtTstQsvDLsksaFUcNywHp7Cs9cbZr0pcTtPGT+AjAA+1DVCfJ0Z3tQi0bNqPifR7aaSzvNQgjuUxuiLfpWb8T6rp2q6FLd6c5jljlVHUMOMEc+vpUBqyXFpIbhY1nckLInIH0NTNV0ix1TRDq2gReQi/wC9tzn/AJh7fWm4x2KOT2JY21fUGttP0mRF8osGmOCoXHI9z6VoetXFrMbaBLiGBFUD/VznPuRnNZbpqyw6laW0jSXMi8iNn5dj7Z71BqaSxrLG1pI0iq3mOTkAkfZqpRivyS3O2JiRpJo42iFwWQOhXnP9KVJpb3DXFwHiL8xqh4UCs6VvbnTr1/CubaOe2kjDPPCiN5gPAHIFa5YtJt7e0jijVdirkE85/GoVGTekHkk90NJrnUrKFr7UJLC2Zs+U3mM3sBXF/dXl6s8+o3EtyIk8wIrABR7Hp+lH2Z02bYrNbzYkLxMqkAHtkGk7w6Dcag6o4ggHJXJGT9B3pyFxbZTtHHqWoXFqv22MwF94AYgCukuoJIkxJIr+SSOB2PtVP4y1QyWs9lbJNJLEuI4yMFjk549qn8N2EV7bJNcRIWuVJBPOAe9Rk20tFqMVFXsJ/X9Omy/gqY1xtaMxp2P+9bCsFBPbNbdpTCXT7Z4/ukQI9uKnU8iqT12MFFFFaMwKKKKACiiigAooooAKKKKAEV6m7UYuR+yayFrdTT3SxSJlNxJx0Ht9q2u6GbSYj+w1ZrwLpkFzLHI8nlJ5YJxkH6dKAFraXsGjwFbWCK5O/cJGPAxz26n8KVXvw3b22r2l3ZSXJbzCzCRsgHr0z9RV7p2p+HtTNrbS2yKoUmUCEbgxPrjtV+t6b2k+Xt/MuXx0waAK1fAOqyosdtqN3p8kZ3bkYoGPoRUvp+ja7ZSNHdeKLyBWP+YjY6dq1Eoyl46/5aJ/pSPc0Qkbvx86AIiTwtYXFxJcajqF3qMrH/AIzMPmoJLLRYbTT7OC0e4BYJcGUkj0yKk9S1W30+ESHMkjcJGuSf+1Zm7vtT1WzuJIXt7SBV/wBNMqF5lH0HGB96ALi71vT7SMyYV0HjOeBV1eTNb2z3LJH5cfJEj4+nevPsM9xeWd9bSzGT7PvkjeTll2qzAZ9M4q78W6Nd6/qiDTrVpVS2U5lXah+I8Z6ccYoA2LS/EP26S0MMGoyRHBFtCJCD+Qrl/GOq6VKmlR69p0lrI8zhJlO0sNoJz+tUGl6HqekaxaXctsl1ql25VobhT5Ua4+JmJHXGMDt6muNc1nV9d1Wx0u/ZLaxt5GkdoJDiQAdCeM80AbEmuabqHhHUbbU7a3j02e3ZYGPXdg4/GtB03/7Ut/8AhH/pXl/RZbzTvHqW80MlrCqFgrqQoB7e2cisvHqOsJIbibU7sRbXCxo52gYPYfWgD2t4hgk8LNdJK7KFYxuvUj0rNaB4xstL8Q2lrdWrQWl4wjcE/C57HOPl/b5VyeINUt9A8NLJNcNIzDHnSnLEn1PeqHwLdWOteFdWsbhWa5SCXJQ4PHKj8SCaAPTniTRBc3FubxVkto/M6c59s9q3tlbxRRLJGmCy5J9T71Tz+F7X7a9xbA2bOcssJIViOmDmrqzh8u2CeWIyo6YxVWZR8CiiiqEFFFFABRRRQAUUUUAFFFFABWJ1OJbfW7ouhILBsjgcDFbbWQ8RNi+kY84A/lQBWwrPqF8gVS2OcAZqG5kvNHvJ44nRJY8xMY+AB/apbRJpI7rLkgDJGKS6xq1jrN6sEFy0rQp50pUHaPYVMU2dMVFrU09Nq+sWsG+7kW7k6mXbtB/CrLR/E1lfT3VjK/2S+td5eOUAAnI2sPce3UV5xq/ivWL6SCx065aFJXCLjvJ7DgZ/WtcPC8F3o2l3+tWkb6lco0pcbsBj0yKrktbI5WtLJjGqM0c2g6lbxaVE0aSxzBViblQBuJbPsa2fT/FGlaS8EkNlJAJFJkYqS2OdqjB6nrTi80e/m0eKC5uI5Jre4FxJEeFlIHGD6VBpekxXOqRRXJjFtGxMjEjkgccY/GiMW+oOUURunanN40ub3VbWS3h0+SRI7WPJLqF4LH0z29K2XwjfHU9Avb6V3IjvPIRWYnYoQHaM9BliaX+J9Tj0TVYLuVIxCIC7RJ1L85Az6Vj9N1C0XXNS020nM9sEE8EvXIYYOaUnyjn+bHerS2EUr3OrRy+fuCiRhgnn0rVdD/wC1Lf8A4R/6Vl/DVzDrGlXNlJJjU7csI5CuNxHIB9SKuND1ex0y4Wy1P7dDNIgeOcRNGrAngZ7E9PxqYs55LE3iC18OuSJLiGNJwOCxJ5P0HWrK31bTjbxTRXdqiTJuiMkijI7ECl2s3+k6VPPdm3RtSdghXywzAYA5ql03UdPmsLIW+mmOVJIxKrRHJJ3buvH0ojBvYpzS2PSGD3MyyJIqYGCqKMnH1rUOBVZpgzp0e5yXPJzn8asKqbM2wooooAKKKKACiiigAooooAKKKKAMjq2NUupRjAOBj2pBdqiWUkjx7nHAHbNaXxPpqapNIxO0xglT6msZq9hb2SiNJpHkc8bui/WgC68P3jT2pSS3EW0ZJxyfeuNd8ZWnhq8sdP8A7Pg8+9laFWlTITAxk/jWH1/Xbqx1i0s9Pt7aJGhV5pJYS4BLbsDnHGBSrUZr6V9OvtVtFiS5nWVmSMhFIPQCmpLcJQkloem/FHhr8Tptvs3f8LvXjPxL4i/iLU7WT7L9n8mDytrSb85YnPT2oosyM+TiiisiwooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKAP//Z"
 
     def _social_icon(href, label, bg_color, text_color="#ffffff", short_label=None):
         display = short_label or label[0]
@@ -147,6 +145,9 @@ def update_email_body_greeting(body_text: str, recruiter_name: str) -> str:
 
 def _pending_candidate_editor_key(selected_jr: str) -> str:
     return f"edp_candidates_editor_{selected_jr}"
+
+
+# ── signature ─────────────────────────────────────────────────────────────────
 
 if "user_signature_edp" not in st.session_state:
     try:
@@ -246,15 +247,6 @@ if not unsent_records:
     st.info("No pending client emails — all uploaded candidates have been emailed.")
     st.stop()
 
-# ── signature ────────────────────────────────────────────────────────────────
-
-if "user_signature_edp" not in st.session_state:
-    try:
-        db_sig = get_user_signature(user["email"])
-        st.session_state.user_signature_edp = db_sig or ""
-    except Exception:
-        st.session_state.user_signature_edp = ""
-
 # ── group by JR Number ────────────────────────────────────────────────────────
 
 grouped: dict[str, list[dict]] = {}
@@ -262,7 +254,43 @@ for rec in unsent_records:
     jr = str(rec.get("jr_number", "")).strip()
     grouped.setdefault(jr, []).append(rec)
 
-# Build dropdown options: "JR001 - Skill Name" or just "JR001"
+# ── recruiter filter ──────────────────────────────────────────────────────────
+
+all_recruiters = sorted({
+    str(rec.get("recruiter_email", "")).strip()
+    for recs in grouped.values()
+    for rec in recs
+    if str(rec.get("recruiter_email", "")).strip()
+})
+
+current_user_email = user.get("email", "").strip()
+default_recruiter = current_user_email if current_user_email in all_recruiters else "All"
+recruiter_options = ["All"] + all_recruiters
+
+if "edp_recruiter_filter" not in st.session_state:
+    st.session_state.edp_recruiter_filter = default_recruiter
+
+selected_recruiter = st.selectbox(
+    "Filter by Recruiter",
+    options=recruiter_options,
+    key="edp_recruiter_filter",
+    help="Defaults to your own pending emails. Select 'All' to see everyone's.",
+)
+
+# Apply filter
+if selected_recruiter != "All":
+    grouped = {
+        jr: [r for r in recs if str(r.get("recruiter_email", "")).strip() == selected_recruiter]
+        for jr, recs in grouped.items()
+    }
+    grouped = {jr: recs for jr, recs in grouped.items() if recs}
+
+if not grouped:
+    st.info(f"No pending emails found for **{selected_recruiter}**.")
+    st.stop()
+
+# ── build JR dropdown ─────────────────────────────────────────────────────────
+
 jr_dropdown_options: list[str] = []
 for jr in sorted(grouped.keys()):
     skill = ""
@@ -298,8 +326,6 @@ if not rows_for_jr:
 
 meta = jr_master_by_number.get(selected_jr, {})
 job_title = str(meta.get("skill_name", "")).strip()
-# Scan ALL records for this JR to find any non-empty recruiter name/email
-# (one record might have it even if others don't)
 recruiter_name_default = _safe(meta.get("client_recruiter"))
 recruiter_email_default = _safe(meta.get("client_recruiter_email")) or _safe(meta.get("recruiter_email"))
 
@@ -309,9 +335,7 @@ for _r in rows_for_jr:
     if not recruiter_email_default:
         recruiter_email_default = _safe(_r.get("client_recruiter_email")) or _safe(_r.get("recruiter_email"))
     if recruiter_name_default and recruiter_email_default:
-        break  # found both, no need to keep scanning
-
-file_names = [str(r.get("file_name", "")).strip() for r in rows_for_jr if r.get("file_name")]
+        break
 
 draft_key = f"edp_draft_{selected_jr}"
 if draft_key not in st.session_state:
@@ -471,7 +495,7 @@ for original_row, edited_row in zip(candidate_rows, edited_display_df.to_dict(or
     for field, value in edited_row.items():
         merged_row[field] = "" if pd.isna(value) else str(value).strip()
     changed_candidate_rows.append(merged_row)
-candidate_rows = changed_candidate_rows  # Send Email will use this
+candidate_rows = changed_candidate_rows
 
 # Explicit save button — only writes to DB when user is done editing
 save_col, _ = st.columns([1, 4])
@@ -507,8 +531,6 @@ if save_btn:
         changed_count += 1
     if changed_count:
         st.success(f"✅ Saved {changed_count} candidate row(s) to database.")
-
-    candidate_rows = changed_candidate_rows
 
 # ── send ──────────────────────────────────────────────────────────────────────
 
@@ -551,7 +573,7 @@ if st.button("Send Email", type="primary", use_container_width=True):
         "Email Body": body_text,
     }
 
-    # Download resumes for attachments
+    # Download resumes from Supabase Storage
     attachments = []
     missing_files = []
     with st.spinner("Preparing attachments..."):
@@ -560,7 +582,10 @@ if st.button("Send Email", type="primary", use_container_width=True):
             link = str(rec.get("resume_path", "")).strip()
             if not fname:
                 continue
-            content = download_resume(link)
+            try:
+                content = download_resume(link) if link else None
+            except Exception:
+                content = None
             if content:
                 attachments.append({"name": fname, "content": content})
             else:
@@ -569,7 +594,7 @@ if st.button("Send Email", type="primary", use_container_width=True):
     if missing_files:
         st.warning(
             f"Could not download {len(missing_files)} file(s): {', '.join(missing_files)}. "
-            f"This is usually caused by an expired login session — try signing out and back in, then retry."
+            "Check that the file exists in Supabase Storage."
         )
 
     user_to_send = {**user, "signature": st.session_state.user_signature_edp or user.get("signature", "")}
@@ -588,7 +613,6 @@ if st.button("Send Email", type="primary", use_container_width=True):
         except Exception as e:
             st.warning(f"Email sent but failed to update DB: {e}")
         st.session_state.edp_send_status = f"ok::{msg}"
-        # Remove draft key so next visit re-initialises
         st.session_state.pop(draft_key, None)
         st.rerun()
     else:
