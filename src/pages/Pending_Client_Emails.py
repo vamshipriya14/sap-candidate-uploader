@@ -560,7 +560,7 @@ if st.button("Send Email", type="primary", use_container_width=True):
             link = str(rec.get("resume_path", "")).strip()
             if not fname:
                 continue
-            content = _download_resume(link)
+            content = download_resume(link)
             if content:
                 attachments.append({"name": fname, "content": content})
             else:
