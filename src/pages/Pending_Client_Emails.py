@@ -21,6 +21,7 @@ from resume_repository import (
     mark_client_email_sent,
     save_user_signature,
     update_resume_record_fields,
+    download_resume,
 )
 
 st.set_page_config(page_title="Pending Client Emails", page_icon="📧", layout="wide")
@@ -146,71 +147,6 @@ def update_email_body_greeting(body_text: str, recruiter_name: str) -> str:
 
 def _pending_candidate_editor_key(selected_jr: str) -> str:
     return f"edp_candidates_editor_{selected_jr}"
-
-
-def _download_resume(access_token: str, resume_path: str, retries: int = 3) -> bytes | None:
-    """
-    Download a resume from OneDrive/SharePoint via Microsoft Graph API.
-    Strategy 1: /me/drive/root:/{path}:/content  (personal OneDrive path)
-    Strategy 2: shares driveItem @microsoft.graph.downloadUrl (pre-auth URL, no token needed)
-    Strategy 3: raw GET with Authorization header
-    """
-    import urllib.parse as _up
-    import re as _re
-    import time as _time
-
-    if not resume_path:
-        return None
-
-    headers = {"Authorization": f"Bearer {access_token}"}
-
-    for attempt in range(retries):
-        try:
-            # Strategy 1: personal OneDrive path
-            personal_match = _re.search(
-                r"/personal/[^/]+/Documents/(.+)$", _up.unquote(resume_path)
-            )
-            if personal_match:
-                relative_path = personal_match.group(1)
-                encoded_path = _up.quote(relative_path)
-                graph_url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_path}:/content"
-                resp = requests.get(graph_url, headers=headers, timeout=30, allow_redirects=True)
-                if resp.status_code == 200:
-                    return resp.content
-
-            # Strategy 2: pre-authenticated download URL via shares endpoint
-            try:
-                share_token = "u!" + base64.urlsafe_b64encode(
-                    resume_path.encode("utf-8")
-                ).decode("utf-8").rstrip("=")
-                meta_url = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem"
-                meta_resp = requests.get(
-                    meta_url,
-                    headers={**headers, "Prefer": "redeemSharingLink"},
-                    params={"$select": "@microsoft.graph.downloadUrl"},
-                    timeout=30,
-                )
-                if meta_resp.status_code == 200:
-                    dl_url = meta_resp.json().get("@microsoft.graph.downloadUrl", "")
-                    if dl_url:
-                        dl_resp = requests.get(dl_url, timeout=30, allow_redirects=True)
-                        if dl_resp.status_code == 200:
-                            return dl_resp.content
-            except Exception:
-                pass
-
-            # Strategy 3: raw GET with auth header
-            resp = requests.get(resume_path, headers=headers, timeout=30, allow_redirects=True)
-            if resp.status_code == 200:
-                return resp.content
-
-        except Exception:
-            pass
-
-        _time.sleep(2 * (attempt + 1))
-
-    return None
-
 
 if "user_signature_edp" not in st.session_state:
     try:
@@ -525,18 +461,30 @@ edited_display_df = st.data_editor(
     hide_index=True,
     disabled=["JR Number", "Date", "Skill", "Email ID"],
 )
-if not edited_display_df.equals(display_df):
-    changed_candidate_rows = []
-    for original_row, edited_row in zip(candidate_rows, edited_display_df.to_dict(orient="records")):
-        merged_row = original_row.copy()
-        for field, value in edited_row.items():
-            merged_row[field] = "" if pd.isna(value) else str(value).strip()
-        changed_candidate_rows.append(merged_row)
 
+# Merge edits into candidate_rows so Send Email always uses latest values,
+# but do NOT auto-save to DB on every cell change.
+has_edits = not edited_display_df.equals(display_df)
+changed_candidate_rows = []
+for original_row, edited_row in zip(candidate_rows, edited_display_df.to_dict(orient="records")):
+    merged_row = original_row.copy()
+    for field, value in edited_row.items():
+        merged_row[field] = "" if pd.isna(value) else str(value).strip()
+    changed_candidate_rows.append(merged_row)
+candidate_rows = changed_candidate_rows  # Send Email will use this
+
+# Explicit save button — only writes to DB when user is done editing
+save_col, _ = st.columns([1, 4])
+with save_col:
+    save_btn = st.button(
+        "💾 Save Table Changes",
+        disabled=not has_edits,
+        help="Persist edits to the database. Unsaved changes are still included when sending the email.",
+    )
+
+if save_btn:
     changed_count = 0
-    for original_row, changed_row in zip(candidate_rows, changed_candidate_rows):
-        if changed_row == original_row:
-            continue
+    for changed_row in changed_candidate_rows:
         record_id = str(changed_row.get("_record_id", "")).strip()
         if not record_id:
             continue
@@ -558,7 +506,8 @@ if not edited_display_df.equals(display_df):
         )
         changed_count += 1
     if changed_count:
-        st.success(f"Saved {changed_count} candidate row(s)")
+        st.success(f"✅ Saved {changed_count} candidate row(s) to database.")
+
     candidate_rows = changed_candidate_rows
 
 # ── send ──────────────────────────────────────────────────────────────────────
@@ -611,7 +560,7 @@ if st.button("Send Email", type="primary", use_container_width=True):
             link = str(rec.get("resume_path", "")).strip()
             if not fname:
                 continue
-            content = _download_resume(user["access_token"], link)
+            content = _download_resume(link)
             if content:
                 attachments.append({"name": fname, "content": content})
             else:
