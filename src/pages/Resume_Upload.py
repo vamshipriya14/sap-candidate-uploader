@@ -101,15 +101,14 @@ GH_REPO  = st.secrets.get("GH_REPO",  os.environ.get("GH_REPO", ""))
 GH_TOKEN = st.secrets.get("GH_TOKEN", os.environ.get("GH_TOKEN", ""))
 GH_EVENT = st.secrets.get("GH_EVENT_TYPE", "resume-form-submitted")
 
-# ── Load external recruiter email suggestions ────────────────────────────────
-@st.cache_data(ttl=600)
+# ── Recruiter email suggestions — sourced from ALLOWED_FORM_USERS secret ───────
 def _load_external_recruiters() -> list[str]:
-    """Read recruiter email suggestions from external_recruiters.txt in the project root."""
-    txt_path = "external_recruiters.txt"
-    if not os.path.exists(txt_path):
-        return []
-    with open(txt_path, "r", encoding="utf-8") as fh:
-        emails = [line.strip().lower() for line in fh if line.strip() and "@" in line]
+    """Re-use the ALLOWED_FORM_USERS secret as the recruiter suggestion list."""
+    raw = st.secrets.get("ALLOWED_FORM_USERS", os.environ.get("ALLOWED_FORM_USERS", ""))
+    if isinstance(raw, list):
+        emails = [e.strip().lower() for e in raw if e.strip() and "@" in e]
+    else:
+        emails = [e.strip().lower() for e in raw.split(",") if e.strip() and "@" in e]
     return sorted(set(emails))
 
 EXTERNAL_RECRUITERS = _load_external_recruiters()
@@ -199,7 +198,7 @@ def trigger_github_workflow(record_ids: list, recruiter_email: str) -> tuple[boo
 # ── Recruiter email widget with suggestions ──────────────────────────────────
 _MANUAL_OPTION = "✏️ Type manually…"
 
-def recruiter_email_widget(default_email: str) -> str:
+def recruiter_email_widget(default_email: str, _suggestions: list = None) -> str:
     """
     Render a recruiter-email picker.
     - If external_recruiters.txt has entries: show a selectbox with those emails
@@ -208,7 +207,8 @@ def recruiter_email_widget(default_email: str) -> str:
 
     Returns the final email string (stripped, lowercase).
     """
-    if not EXTERNAL_RECRUITERS:
+    suggestions = _suggestions if _suggestions is not None else EXTERNAL_RECRUITERS
+    if not suggestions:
         # No suggestions available — plain text input (original behaviour)
         return st.text_input(
             "Recruiter Email ID",
@@ -217,12 +217,12 @@ def recruiter_email_widget(default_email: str) -> str:
         ).strip().lower()
 
     # Build dropdown options
-    options = EXTERNAL_RECRUITERS + [_MANUAL_OPTION]
+    options = suggestions + [_MANUAL_OPTION]
 
     # Pre-select the logged-in user's email if it's already in the list
     default_idx = 0
-    if default_email and default_email.lower() in EXTERNAL_RECRUITERS:
-        default_idx = EXTERNAL_RECRUITERS.index(default_email.lower())
+    if default_email and default_email.lower() in suggestions:
+        default_idx = suggestions.index(default_email.lower())
 
     selected = st.selectbox(
         "Recruiter Email ID",
@@ -234,7 +234,7 @@ def recruiter_email_widget(default_email: str) -> str:
     if selected == _MANUAL_OPTION:
         custom = st.text_input(
             "Enter recruiter email",
-            value=default_email if default_email not in EXTERNAL_RECRUITERS else "",
+            value=default_email if default_email not in suggestions else "",
             placeholder="someone@example.com",
         )
         return custom.strip().lower()
@@ -263,7 +263,7 @@ with col_jr:
 
 with col_email:
     default_email = "" if is_public else user.get("email", "")
-    recruiter_email = recruiter_email_widget(default_email)
+    recruiter_email = recruiter_email_widget(default_email, EXTERNAL_RECRUITERS)
 
 # Display skill and job details in next line (collapsible)
 if jr_no and jr_meta:
