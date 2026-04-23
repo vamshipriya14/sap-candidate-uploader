@@ -140,6 +140,9 @@ def _missing_required_rows(rows: list[dict]) -> list[str]:
         if missing:
             label = _safe(row.get("Resume File")) or f"row {idx + 1}"
             missing_rows.append(f"{label}: {', '.join(missing)}")
+        if not _safe(row.get("Recruiter Email")):
+            missing_rows.append(f"{label}: Recruiter Email ID")
+
     return missing_rows
 
 
@@ -281,6 +284,7 @@ if st.session_state.upload_rows:
             "Email ID":       st.column_config.TextColumn(width="medium", required=True),
             "Contact Number": st.column_config.TextColumn(width="medium", required=True),
             "Resume File":    st.column_config.TextColumn(disabled=True, width="medium"),
+            "Recruiter Email": st.column_config.TextColumn(width="medium", required=True),
         },
         num_rows="fixed",
         key="upload_table",
@@ -342,7 +346,7 @@ if st.session_state.upload_rows:
         missing_rows = _missing_required_rows(merged)
         if missing_rows:
             st.error(
-                "JR No, candidate name, email, phone, and resume file are required before submitting. "
+                "JR No, candidate name, email, phone, recruiter email id and resume file are required before submitting. "
                 "Please complete: " + "; ".join(missing_rows)
             )
             st.stop()
