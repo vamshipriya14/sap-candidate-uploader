@@ -1184,12 +1184,28 @@ class SAPBot:
                 function visible(el) {
                     if (!el) return false;
                     var style = window.getComputedStyle(el);
-                    if (style.display === 'none' || style.visibility === 'hidden') return false;
+                    if (style.display === 'none' || style.visibility === 'hidden' || style.pointerEvents === 'none') {
+                        return false;
+                    }
                     var rect = el.getBoundingClientRect();
                     return rect.width > 0 && rect.height > 0;
                 }
+                function activeDialog() {
+                    var dialogs = Array.from(document.querySelectorAll('.sapMDialog, [role="dialog"]')).filter(visible);
+                    if (!dialogs.length) return null;
+                    dialogs.sort(function (a, b) {
+                        var zA = parseInt(window.getComputedStyle(a).zIndex || '0', 10);
+                        var zB = parseInt(window.getComputedStyle(b).zIndex || '0', 10);
+                        if (zA !== zB) return zA - zB;
+                        return Array.from(document.querySelectorAll('.sapMDialog, [role="dialog"]')).indexOf(a) -
+                            Array.from(document.querySelectorAll('.sapMDialog, [role="dialog"]')).indexOf(b);
+                    });
+                    return dialogs[dialogs.length - 1];
+                }
                 var wanted = arguments[0];
-                var allControls = Object.values(sap.ui.getCore().mElements || {});
+                var dialog = activeDialog();
+                if (!dialog) return 'dialog_not_found';
+                var allControls = Object.values((((window.sap || {}).ui || {}).getCore || function () { return {}; })().mElements || {});
                 for (var c of allControls) {
                     if (!c.getMetadata || c.getMetadata().getName() !== 'sap.m.Button') continue;
                     if (!c.getText || c.getText().trim() !== wanted) continue;
@@ -1197,6 +1213,7 @@ class SAPBot:
                     if (c.getEnabled && c.getEnabled() === false) continue;
                     var dom = c.getDomRef ? c.getDomRef() : null;
                     if (!visible(dom)) continue;
+                    if (!(dialog === dom || dialog.contains(dom))) continue;
                     c.firePress();
                     return 'firePress:' + (c.getId ? c.getId() : wanted);
                 }
@@ -1217,7 +1234,9 @@ class SAPBot:
                 function visible(el) {
                     if (!el) return false;
                     var style = window.getComputedStyle(el);
-                    if (style.display === 'none' || style.visibility === 'hidden') return false;
+                    if (style.display === 'none' || style.visibility === 'hidden' || style.pointerEvents === 'none') {
+                        return false;
+                    }
                     var rect = el.getBoundingClientRect();
                     return rect.width > 0 && rect.height > 0;
                 }

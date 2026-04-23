@@ -857,6 +857,7 @@ if process_all:
             # ─────────────────────────────
             sap_status = "Failed"
             sap_error = ""
+            screenshot_captured = False
 
             NON_CRITICAL_SAP_ERRORS = ["requisition id", "not found in job list"]
             DEAD_SESSION_ERRORS = ["invalid session id", "no such session", "disconnected"]
@@ -905,15 +906,17 @@ if process_all:
                         continue  # retry with fresh session
 
                     # Real failure — capture screenshot
-                    try:
-                        screenshot_name = f"{jr_no}_{cand_label}_attempt{attempt + 1}"
-                        screenshot_path = bot._screenshot(screenshot_name)
-                        failed_upload_attachments.append({
-                            "name": f"{screenshot_name}.png",
-                            "content": screenshot_path.read_bytes(),
-                        })
-                    except Exception as ss_err:
-                        st.warning(f"Screenshot capture failed: {ss_err}")
+                    if not screenshot_captured:
+                        try:
+                            screenshot_name = f"{jr_no}_{cand_label}"
+                            screenshot_path = bot._screenshot(screenshot_name)
+                            failed_upload_attachments.append({
+                                "name": f"{screenshot_name}.png",
+                                "content": screenshot_path.read_bytes(),
+                            })
+                            screenshot_captured = True
+                        except Exception as ss_err:
+                            st.warning(f"Screenshot capture failed: {ss_err}")
 
                     st.error(f"❌ SAP upload failed (attempt {attempt + 1}): {sap_error}")
 

@@ -36,7 +36,7 @@ from resume_repository import (
     SUPABASE_TABLE,
 )
 from sap_bot_headless import SAPBot
-from uploader import upload_to_sap
+from uploader import missing_upload_fields, upload_to_sap
 from resume_repository import _secret
 
 # ─────────────────────────────────────────────────────────────
@@ -91,8 +91,8 @@ def _start_bot() -> SAPBot:
 
 def fetch_form_pending_records(limit: int = 50) -> list:
     """
-    Fetch records submitted via the form (Pending, Failed, or Skipped for retry).
-    Include failed/skipped records to retry SAP upload.
+    Fetch only form-submitted records that are currently Pending.
+    Failed/Skipped records remain terminal until explicitly moved back to Pending.
 
     Key distinction from scheduler.py (email inbox):
         Email-submitted records have source_email_id populated.
@@ -101,7 +101,7 @@ def fetch_form_pending_records(limit: int = 50) -> list:
     url = (
         f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
         f"?source_email_id=is.null"        # ← ONLY form-submitted rows
-        f"&upload_to_sap=in.(Pending,Failed,Skipped)"  # Retry failed/skipped
+        f"&upload_to_sap=eq.Pending"
         f"&select=*"
         f"&limit={limit}"
     )
@@ -129,6 +129,22 @@ def _add_result(by_recruiter, recruiter_email, file_name, status, screenshots=No
     by_recruiter[recruiter_email]["results"].append({"File": file_name, "Status": status})
     if screenshots:
         by_recruiter[recruiter_email]["screenshots"].extend(screenshots)
+
+
+def _report_status(sap_status: str, sap_error: str = "") -> str:
+    if sap_status == "Done":
+        return "Success"
+    if "requisition id" in str(sap_error or "").lower() and "not found" in str(sap_error or "").lower():
+        return "Job not found"
+    return "Failed"
+
+
+def _mark_skipped_silent(record_id: str) -> None:
+    _patch_record(record_id, {
+        "upload_to_sap": "Skipped",
+        "error_message": "",
+        "modified_at": _now_iso(),
+    })
 
 
 # ─────────────────────────────────────────────────────────────
@@ -192,6 +208,23 @@ def run_pipeline() -> dict:
 
         log.info(f"  → {cand_label} | JR: {jr_no} | id: {record_id}")
 
+        missing = missing_upload_fields({
+            "jr_number": jr_no,
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": email,
+            "phone": phone,
+            "resume_file": resume_path,
+        })
+        if missing:
+            log.info(f"     Skipping silently - missing required data: {', '.join(missing)}")
+            try:
+                _mark_skipped_silent(record_id)
+            except Exception as e:
+                log.warning(f"     Failed to mark incomplete record as Skipped: {e}")
+            summary["skipped"] += 1
+            continue
+
         # ── Check for duplicates (retry failed/skipped uploads) ───
         duplicate = fetch_existing_record(jr_no, email, phone)
         is_duplicate = False
@@ -205,7 +238,7 @@ def run_pipeline() -> dict:
             elif dup_id != record_id:
                 log.info(f"     Duplicate found with status={dup_status} — skipping")
                 summary["skipped"] += 1
-                _add_result(by_recruiter, recruiter_email, file_name, f"Duplicate (already {dup_status})")
+                _add_result(by_recruiter, recruiter_email, file_name, "Failed")
                 continue
 
         # ── 3a. Download resume from Supabase Storage ─────────
@@ -224,6 +257,15 @@ def run_pipeline() -> dict:
                 log.warning(f"     Resume download failed: {e}")
 
         # ── 3b. SAP upload ────────────────────────────────────
+        if not file_bytes:
+            log.info("     Skipping silently - resume missing or could not be downloaded")
+            try:
+                _mark_skipped_silent(record_id)
+            except Exception as e:
+                log.warning(f"     Failed to mark missing-resume record as Skipped: {e}")
+            summary["skipped"] += 1
+            continue
+
         if not bot:
             log.warning("     SAP bot unavailable — marking Skipped")
             _patch_record(record_id, {
@@ -232,12 +274,13 @@ def run_pipeline() -> dict:
                 "modified_at":   _now_iso(),
             })
             summary["skipped"] += 1
-            _add_result(by_recruiter, recruiter_email, file_name, "SAP bot unavailable")
+            _add_result(by_recruiter, recruiter_email, file_name, "Failed")
             continue
 
-        sap_status         = "Pending"  # Keep Pending on temporary errors (retry later)
+        sap_status         = "Failed"
         sap_error          = ""
         failed_screenshots = []
+        screenshot_captured = False
 
         for attempt in range(2):
             try:
@@ -268,6 +311,7 @@ def run_pipeline() -> dict:
                     break
 
                 if any(err in sap_error.lower() for err in DEAD_SESSION_ERRORS):
+                    sap_status = "Pending"
                     log.warning(f"     Session dead (attempt {attempt + 1}) — restarting bot…")
                     try: bot.quit()
                     except Exception: pass
@@ -280,16 +324,20 @@ def run_pipeline() -> dict:
                         break
                     continue
 
+                sap_status = "Failed"
+
                 # Capture screenshot on real failure
-                try:
-                    snap_name = f"{jr_no}_{cand_label}_attempt{attempt + 1}"
-                    snap_path = bot._screenshot(snap_name)
-                    failed_screenshots.append({
-                        "name":    f"{snap_name}.png",
-                        "content": snap_path.read_bytes(),
-                    })
-                except Exception:
-                    pass
+                if not screenshot_captured:
+                    try:
+                        snap_name = f"{jr_no}_{cand_label}"
+                        snap_path = bot._screenshot(snap_name)
+                        failed_screenshots.append({
+                            "name":    f"{snap_name}.png",
+                            "content": snap_path.read_bytes(),
+                        })
+                        screenshot_captured = True
+                    except Exception:
+                        pass
                 log.error(f"     ❌ SAP upload failed (attempt {attempt + 1}): {sap_error}")
 
         # ── 3c. Update Supabase table ─────────────────────────
@@ -331,7 +379,7 @@ def run_pipeline() -> dict:
 
         _add_result(
             by_recruiter, recruiter_email, file_name,
-            "Success" if sap_status == "Done" else sap_error[:100],
+            _report_status(sap_status, sap_error),
             screenshots=failed_screenshots,
         )
 

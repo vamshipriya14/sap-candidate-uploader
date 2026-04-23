@@ -121,6 +121,10 @@ def send_upload_notification(access_token, user, results, submit_mode, attachmen
         else f"{len(success)} succeeded, {len(failed)} failed."
     )
 
+    failed_note = ""
+    if failed:
+        failed_note = "<p style='margin-top:12px; color:#856404;'>Please refer to attached screenshots for more details.</p>"
+
     html_body = f"""
     <html><body style='font-family: Segoe UI, Arial, sans-serif; color: #333; max-width: 600px; margin: auto'>
         <div style='background:#0078d4; padding:24px; border-radius:8px 8px 0 0'>
@@ -133,6 +137,7 @@ def send_upload_notification(access_token, user, results, submit_mode, attachmen
             <div style='background:{summary_bg}; padding:12px 16px; border-radius:6px; margin:16px 0'>
                 {summary_text}
             </div>
+            {failed_note}
             <table style='width:100%; border-collapse:collapse; margin-top:16px'>
                 <thead>
                     <tr style='background:#f8f9fa'>

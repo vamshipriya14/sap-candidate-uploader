@@ -62,6 +62,44 @@ def normalize_upload_error(error: Exception) -> str:
     first_line = next((line.strip() for line in cleaned.splitlines() if line.strip()), "")
     lower = cleaned.lower()
 
+    generic_prefixes = [
+        "failed to open add candidate form:",
+        "failed to fill text fields:",
+        "failed to set dropdowns:",
+        "failed to upload resume:",
+        "failed to check terms checkbox:",
+        "submit new candidate click failed:",
+        "actions button not found:",
+    ]
+    generic_exact = {
+        "upload failed",
+        "submit action failed",
+        "cancel action failed",
+        "agreement checkbox failed",
+        "candidate form fill failed",
+        "country selection failed",
+        "resume upload failed",
+        "sap login failed",
+        "add candidate form did not open",
+    }
+
+    extracted = first_line
+    while extracted:
+        lowered = extracted.lower()
+        next_value = None
+        for prefix in generic_prefixes:
+            if lowered.startswith(prefix):
+                next_value = extracted[len(prefix):].strip(" :-")
+                break
+        if not next_value or next_value == extracted:
+            break
+        extracted = next_value
+
+    extracted_lower = extracted.lower() if extracted else ""
+
+    if extracted and extracted_lower not in generic_exact and "dialog did not close after submission" not in extracted_lower:
+        return extracted
+
     if "duplicate" in lower or "already exists" in lower or "already been submitted" in lower:
         return "Duplicate candidate"
     if "requisition id" in lower and "not found" in lower:
@@ -74,6 +112,8 @@ def normalize_upload_error(error: Exception) -> str:
         return "Cancel action failed"
     if "dialog did not close after submission" in lower:
         return "Submit action failed"
+    if "sap upload failed. refer to screenshot for more detail." in lower:
+        return "SAP upload failed. Refer to screenshot for more detail."
     if "form did not open" in lower or "open add candidate form" in lower:
         return "Add Candidate form did not open"
     if "resume" in lower and "upload" in lower:
