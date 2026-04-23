@@ -199,11 +199,16 @@ def trigger_github_workflow(record_ids: list, recruiter_email: str) -> tuple[boo
 
 
 def recruiter_email_widget(_suggestions: list = None, default_email: str = "") -> str:
+    """
+    Searchable dropdown using a hidden st.text_input driven by a custom
+    HTML/JS component. Typing filters the list; clicking selects.
+    Falls back to plain text_input when no suggestions are configured.
+    """
+    import json
     suggestions = _suggestions if _suggestions is not None else EXTERNAL_RECRUITERS
     email_lower = default_email.strip().lower()
 
     if not suggestions:
-        # No list configured — plain text input
         return st.text_input(
             "Recruiter Email ID",
             value=email_lower,
@@ -211,18 +216,165 @@ def recruiter_email_widget(_suggestions: list = None, default_email: str = "") -
             help="Your email to receive SAP upload notifications.",
         ).strip().lower()
 
-    # Pre-select logged-in user's email if it's in the list, else show blank
-    options = [""] + suggestions
-    default_idx = options.index(email_lower) if email_lower in options else 0
+    # Session-state key that the JS component writes into
+    _key = "_recruiter_email_selected"
+    if _key not in st.session_state:
+        st.session_state[_key] = email_lower
 
-    selected = st.selectbox(
-        "Recruiter Email ID",
-        options=options,
-        index=default_idx,
-        format_func=lambda x: "— select —" if x == "" else x,
-        help="Select your email to receive SAP upload notifications.",
-    )
-    return selected.strip().lower()
+    options_json = json.dumps(suggestions)
+    initial_val  = st.session_state[_key] or ""
+
+    html = f"""
+<style>
+  .rec-wrap {{
+    position: relative;
+    font-family: "Source Sans Pro", sans-serif;
+  }}
+  .rec-wrap label {{
+    font-size: 14px;
+    color: rgba(250,250,250,0.6);
+    display: block;
+    margin-bottom: 6px;
+  }}
+  .rec-input {{
+    width: 100%;
+    padding: 9px 36px 9px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(250,250,250,0.2);
+    background: rgb(38,39,48);
+    color: white;
+    font-size: 15px;
+    box-sizing: border-box;
+    outline: none;
+    cursor: pointer;
+  }}
+  .rec-input:focus {{ border-color: #ff4b4b; }}
+  .rec-arrow {{
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: rgba(250,250,250,0.5);
+    pointer-events: none;
+    font-size: 12px;
+  }}
+  .rec-dropdown {{
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0; right: 0;
+    background: rgb(38,39,48);
+    border: 1px solid rgba(250,250,250,0.2);
+    border-radius: 8px;
+    max-height: 220px;
+    overflow-y: auto;
+    z-index: 9999;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }}
+  .rec-dropdown.open {{ display: block; }}
+  .rec-option {{
+    padding: 10px 14px;
+    color: rgba(250,250,250,0.85);
+    font-size: 14px;
+    cursor: pointer;
+    border-radius: 6px;
+    margin: 3px;
+  }}
+  .rec-option:hover, .rec-option.active {{ background: rgba(255,75,75,0.2); color: white; }}
+  .rec-empty {{
+    padding: 10px 14px;
+    color: rgba(250,250,250,0.4);
+    font-size: 13px;
+  }}
+</style>
+
+<div class="rec-wrap">
+  <label>Recruiter Email ID</label>
+  <div style="position:relative">
+    <input id="rec-input" class="rec-input" type="text"
+           placeholder="Search or select email…"
+           value="{initial_val}"
+           autocomplete="off" readonly />
+    <span class="rec-arrow">▼</span>
+    <div id="rec-dropdown" class="rec-dropdown"></div>
+  </div>
+</div>
+
+<script>
+(function() {{
+  const ALL     = {options_json};
+  const input   = document.getElementById("rec-input");
+  const dropdown= document.getElementById("rec-dropdown");
+  let isOpen    = false;
+  let selected  = "{initial_val}";
+
+  function render(filter) {{
+    const q    = (filter || "").toLowerCase();
+    const hits = q ? ALL.filter(e => e.includes(q)) : ALL;
+    dropdown.innerHTML = "";
+    if (!hits.length) {{
+      dropdown.innerHTML = '<div class="rec-empty">No matches</div>';
+      return;
+    }}
+    hits.forEach(email => {{
+      const d = document.createElement("div");
+      d.className = "rec-option" + (email === selected ? " active" : "");
+      d.textContent = email;
+      d.onmousedown = (e) => {{ e.preventDefault(); pick(email); }};
+      dropdown.appendChild(d);
+    }});
+  }}
+
+  function open() {{
+    input.readOnly = false;
+    input.value = "";
+    render("");
+    dropdown.classList.add("open");
+    isOpen = true;
+    input.focus();
+  }}
+
+  function close() {{
+    dropdown.classList.remove("open");
+    isOpen = false;
+    input.readOnly = true;
+    input.value = selected;
+  }}
+
+  function pick(email) {{
+    selected = email;
+    close();
+    // Write into hidden Streamlit text_input
+    const hidden = window.parent.document.querySelector('input[data-testid="stTextInput"][aria-label="_recruiter_email_hidden"]');
+    if (hidden) {{
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      nativeInputValueSetter.call(hidden, email);
+      hidden.dispatchEvent(new Event("input", {{ bubbles: true }}));
+    }}
+  }}
+
+  input.addEventListener("click", () => isOpen ? close() : open());
+  input.addEventListener("input",  () => render(input.value));
+  input.addEventListener("blur",   () => setTimeout(close, 150));
+  render("");
+}})();
+</script>
+"""
+
+    st.components.v1.html(html, height=100)
+
+    # Hidden text_input that JS writes into — this is what Python reads
+    val = st.text_input(
+        "_recruiter_email_hidden",
+        value=st.session_state[_key],
+        label_visibility="hidden",
+        key="_recruiter_email_hidden_input",
+    ).strip().lower()
+
+    if val:
+        st.session_state[_key] = val
+
+    return st.session_state[_key]
 
 # ── Session state ───────────────────────────────────────────────────────────
 if "upload_rows" not in st.session_state:
