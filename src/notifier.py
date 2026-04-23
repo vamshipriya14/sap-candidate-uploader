@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import os
 import requests
 from datetime import datetime
@@ -87,6 +88,23 @@ def _get_app_token() -> str:
     return data["access_token"]
 
 
+def _upload_report_status(status: str) -> str:
+    status_text = str(status or "").strip()
+    status_lower = status_text.lower()
+
+    if status_text == "Success":
+        return "Success"
+    if "job id not found" in status_lower:
+        return "Job id not found"
+    if "job not found" in status_lower:
+        return "Job id not found"
+    if "requisition id" in status_lower and "not found" in status_lower:
+        return "Job id not found"
+    if "not found in job list" in status_lower:
+        return "Job id not found"
+    return "Failed"
+
+
 def send_upload_notification(access_token, user, results, submit_mode, attachments=None, cc=None):
     """
     Sends an upload summary email via Microsoft Graph API using
@@ -97,14 +115,18 @@ def send_upload_notification(access_token, user, results, submit_mode, attachmen
     if not REPORT_SENDER_EMAIL:
         return False, "Upload report sender email is not configured."
 
-    success    = [r for r in results if r["Status"] == "Success"]
-    failed     = [r for r in results if r["Status"] != "Success"]
+    display_results = [
+        {**r, "Status": _upload_report_status(r.get("Status", ""))}
+        for r in results
+    ]
+    success    = [r for r in display_results if r["Status"] == "Success"]
+    failed     = [r for r in display_results if r["Status"] != "Success"]
     mode_label = "Live Submit" if submit_mode else "Dry Run"
     timestamp  = datetime.now().strftime("%d %b %Y, %I:%M %p")
 
     # Build results table rows
     rows_html = ""
-    for r in results:
+    for r in display_results:
         is_ok = r["Status"] == "Success"
         bg    = "#d4edda" if is_ok else "#f8d7da"
         icon  = "✅" if is_ok else "❌"
@@ -157,16 +179,22 @@ def send_upload_notification(access_token, user, results, submit_mode, attachmen
     try:
         token = _get_app_token()
         graph_attachments = []
+        seen_attachment_keys = set()
         for attachment in attachments or []:
             name = str(attachment.get("name", "")).strip()
             content = attachment.get("content")
             if not name or content is None:
                 continue
+            content_bytes = bytes(content)
+            attachment_key = hashlib.sha256(content_bytes).hexdigest()
+            if attachment_key in seen_attachment_keys:
+                continue
+            seen_attachment_keys.add(attachment_key)
             graph_attachments.append(
                 {
                     "@odata.type": "#microsoft.graph.fileAttachment",
                     "name": name,
-                    "contentBytes": base64.b64encode(content).decode("ascii"),
+                    "contentBytes": base64.b64encode(content_bytes).decode("ascii"),
                 }
             )
 

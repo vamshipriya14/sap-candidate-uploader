@@ -357,6 +357,21 @@ def submit_candidates():
             return jsonify({"error": "Missing JR number or recruiter email"}), 400
         if not candidates:
             return jsonify({"error": "No candidates to submit"}), 400
+        for cand in candidates:
+            missing = []
+            if not (cand.get("first_name") or "").strip():
+                missing.append("first name")
+            if not (cand.get("last_name") or "").strip():
+                missing.append("last name")
+            if not (cand.get("email") or "").strip():
+                missing.append("email")
+            if not (cand.get("phone") or "").strip():
+                missing.append("phone")
+            if not (cand.get("resume_path") or "").strip():
+                missing.append("resume path")
+            if missing:
+                label = (cand.get("file_name") or "candidate").strip()
+                return jsonify({"error": f"{label} is missing required fields: {', '.join(missing)}"}), 400
 
         today_text      = datetime.now(timezone.utc).strftime("%d-%b-%Y")
         recruiter_name  = _name_from_email(recruiter_email)

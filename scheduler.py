@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent
 SRC  = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
-from notifier import _get_app_token, send_upload_notification
+from notifier import _get_app_token, _upload_report_status, send_upload_notification
 from resume_parser import parse_resume
 from resume_repository import (
     _headers,
@@ -33,7 +33,7 @@ from resume_repository import (
     SUPABASE_TABLE,
 )
 from sap_bot_headless import SAPBot
-from uploader import upload_to_sap
+from uploader import missing_upload_fields, upload_to_sap
 
 # ─────────────────────────────────────────────────────────────
 # LOGGING
@@ -523,7 +523,7 @@ def run_pipeline() -> dict:
             if not att:
                 log.error(f"Resume not found for {cand_label}")
                 summary["failed"] += 1
-                results_log.append({"File": cand_label, "Status": "Resume Not Found"})
+                results_log.append({"File": cand_label, "Status": "Failed"})
                 continue
 
             file_name  = att["name"]
@@ -647,7 +647,7 @@ def run_pipeline() -> dict:
                         else:
                             log.error(f"Could not recover record for {cand_label}")
                             summary["failed"] += 1
-                            results_log.append({"File": file_name, "Status": "Duplicate — ID not recovered"})
+                            results_log.append({"File": file_name, "Status": "Failed"})
                             continue
                     else:
                         log.error(f"DB insert failed: {e}")
@@ -656,22 +656,51 @@ def run_pipeline() -> dict:
 
             log.info(f"DB ready → {db_record_id}")
 
+            missing = missing_upload_fields({
+                "jr_number": jr_no,
+                "first_name": first_name,
+                "last_name": last_name,
+                "email": row_data["Email"],
+                "phone": row_data["Phone"],
+                "resume_file": resume_path,
+            })
+            if missing:
+                log.info(f"Skipping SAP upload - missing required data: {', '.join(missing)}")
+                if db_record_id:
+                    try:
+                        requests.patch(
+                            f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{db_record_id}",
+                            headers=_headers(),
+                            json={
+                                "upload_to_sap": "Skipped",
+                                "error_message": "",
+                                "modified_by": from_email,
+                                "modified_at": _now_iso(),
+                            },
+                            timeout=10,
+                        )
+                    except Exception as e:
+                        log.warning(f"Failed to mark incomplete record as Skipped: {e}")
+                summary["skipped"] += 1
+                continue
+
             # 5g. SAP upload decision
             if existing_status in ("done",):
                 log.info("Already in SAP — skipping.")
                 summary["skipped"] += 1
-                results_log.append({"File": file_name, "Status": "Already in SAP"})
+                results_log.append({"File": file_name, "Status": "Success"})
                 continue
 
             if not bot:
                 log.warning("SAP bot unavailable — skipping SAP upload.")
                 summary["skipped"] += 1
-                results_log.append({"File": file_name, "Status": "SAP bot unavailable"})
+                results_log.append({"File": file_name, "Status": "Failed"})
                 continue
 
             # 5h. SAP upload with retry
             sap_status = "Failed"
             sap_error  = ""
+            screenshot_captured = False
 
             for attempt in range(2):
                 try:
@@ -691,11 +720,13 @@ def run_pipeline() -> dict:
                     break
                 except Exception as e:
                     sap_error = str(e)
+                    sap_status = "Failed"
                     if any(err in sap_error.lower() for err in NON_CRITICAL_SAP_ERRORS):
                         sap_status = "Skipped"
                         log.warning(f"SAP skipped (non-critical): {sap_error}")
                         break
                     if any(err in sap_error.lower() for err in DEAD_SESSION_ERRORS):
+                        sap_status = "Pending"
                         log.warning(f"SAP session dead (attempt {attempt + 1}) — restarting…")
                         try:
                             bot.quit()
@@ -709,6 +740,9 @@ def run_pipeline() -> dict:
                             bot = None
                             break
                         continue
+                    if screenshot_captured:
+                        log.error(f"SAP upload failed (attempt {attempt + 1}): {sap_error}")
+                        continue
                     try:
                         screenshot_name = f"{jr_no}_{cand_label}_attempt{attempt + 1}"
                         screenshot_path = bot._screenshot(screenshot_name)
@@ -716,6 +750,7 @@ def run_pipeline() -> dict:
                             "name":    f"{screenshot_name}.png",
                             "content": screenshot_path.read_bytes(),
                         })
+                        screenshot_captured = True
                     except Exception:
                         pass
                     log.error(f"SAP upload failed (attempt {attempt + 1}): {sap_error}")
@@ -770,7 +805,7 @@ def run_pipeline() -> dict:
 
             results_log.append({
                 "File":   file_name,
-                "Status": "Success" if sap_status == "Done" else sap_error[:100],
+                "Status": _upload_report_status("Success" if sap_status == "Done" else sap_error),
             })
 
             # Mark email as read + move after all candidates processed

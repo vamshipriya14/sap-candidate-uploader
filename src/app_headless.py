@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from auth import require_login, show_navigation, show_user_profile
-from notifier import send_upload_notification
+from notifier import _upload_report_status, send_upload_notification
 from resume_parser import parse_resume
 from resume_repository import (
     fetch_active_jr_master,
@@ -57,76 +57,12 @@ def _safe_merge(base: dict, incoming: dict) -> dict:
 
 
 def normalize_upload_error(error: Exception) -> str:
-    raw = str(error or "").strip()
-    cleaned = raw.split("Stacktrace:", 1)[0].replace("Message:", "").strip()
-    first_line = next((line.strip() for line in cleaned.splitlines() if line.strip()), "")
-    lower = cleaned.lower()
-
-    generic_prefixes = [
-        "failed to open add candidate form:",
-        "failed to fill text fields:",
-        "failed to set dropdowns:",
-        "failed to upload resume:",
-        "failed to check terms checkbox:",
-        "submit new candidate click failed:",
-        "actions button not found:",
-    ]
-    generic_exact = {
-        "upload failed",
-        "submit action failed",
-        "cancel action failed",
-        "agreement checkbox failed",
-        "candidate form fill failed",
-        "country selection failed",
-        "resume upload failed",
-        "sap login failed",
-        "add candidate form did not open",
-    }
-
-    extracted = first_line
-    while extracted:
-        lowered = extracted.lower()
-        next_value = None
-        for prefix in generic_prefixes:
-            if lowered.startswith(prefix):
-                next_value = extracted[len(prefix):].strip(" :-")
-                break
-        if not next_value or next_value == extracted:
-            break
-        extracted = next_value
-
-    extracted_lower = extracted.lower() if extracted else ""
-
-    if extracted and extracted_lower not in generic_exact and "dialog did not close after submission" not in extracted_lower:
-        return extracted
-
-    if "duplicate" in lower or "already exists" in lower or "already been submitted" in lower:
-        return "Duplicate candidate"
+    lower = str(error or "").lower()
     if "requisition id" in lower and "not found" in lower:
-        return "Job not found"
+        return "Job id not found"
     if "job" in lower and "not found" in lower:
-        return "Job not found"
-    if "agreement box" in lower or "terms checkbox" in lower or "checkbox" in lower:
-        return "Agreement checkbox failed"
-    if "dialog did not close after cancel" in lower:
-        return "Cancel action failed"
-    if "dialog did not close after submission" in lower:
-        return "Submit action failed"
-    if "sap upload failed. refer to screenshot for more detail." in lower:
-        return "SAP upload failed. Refer to screenshot for more detail."
-    if "form did not open" in lower or "open add candidate form" in lower:
-        return "Add Candidate form did not open"
-    if "resume" in lower and "upload" in lower:
-        return "Resume upload failed"
-    if "dropdown" in lower or "country code" in lower or "country" in lower:
-        return "Country selection failed"
-    if "fill text fields" in lower or "first name" in lower or "email" in lower:
-        return "Candidate form fill failed"
-    if "login failed" in lower or "credentials" in lower:
-        return "SAP login failed"
-    if "file bytes not found" in lower:
-        return "Resume file missing from session"
-    return first_line or "Upload failed"
+        return "Job id not found"
+    return "Failed"
 
 
 def pretty_user_name(user: dict) -> str:
@@ -1050,10 +986,14 @@ with st.form("resume_editor_form"):
                 options=jr_display_options,
                 help="Select JR Number — shows JR No and skill name. Only the JR No is saved.",
                 pinned=True,
+                required=True,
             ),
             "Date": st.column_config.Column(pinned=True),
             "Skill": st.column_config.TextColumn("Skill", width="small", pinned=True),
-            "First Name": st.column_config.Column(pinned=True),
+            "First Name": st.column_config.TextColumn("First Name", pinned=True, required=True),
+            "Last Name": st.column_config.TextColumn("Last Name", required=True),
+            "Email": st.column_config.TextColumn("Email", required=True),
+            "Phone": st.column_config.TextColumn("Phone", required=True),
             "Actual Status": st.column_config.SelectboxColumn(
                 "Actual Status",
                 options=[
@@ -1079,6 +1019,30 @@ if save_table_changes:
     editor_df = editor_df[
         ~(editor_df[["First Name", "Last Name", "Email", "Phone"]].fillna("").apply(lambda x: x.str.strip()).eq("").all(axis=1))
     ]
+
+    required_editor_fields = ["JR Number", "First Name", "Last Name", "Email", "Phone"]
+    invalid_editor_rows = editor_df[
+        editor_df[required_editor_fields].fillna("").apply(lambda x: x.astype(str).str.strip()).eq("").any(axis=1)
+    ]
+    missing_resume_rows = editor_df[
+        editor_df["File Name"].fillna("").astype(str).str.strip().map(
+            lambda file_name: not str(st.session_state.resume_paths.get(file_name, "")).strip()
+        )
+    ]
+    if not invalid_editor_rows.empty or not missing_resume_rows.empty:
+        invalid_names = set(
+            str(row.get("File Name", "")).strip() or f"row {idx + 1}"
+            for idx, row in invalid_editor_rows.iterrows()
+        )
+        invalid_names.update(
+            str(row.get("File Name", "")).strip() or f"row {idx + 1}"
+            for idx, row in missing_resume_rows.iterrows()
+        )
+        st.error(
+            "JR Number, First Name, Last Name, Email, Phone, and resume path are required. "
+            "Please complete: " + ", ".join(sorted(invalid_names))
+        )
+        st.stop()
 
     for _, row in editor_df.iterrows():
         file_name = str(row.get("File Name", "")).strip()
@@ -1193,6 +1157,11 @@ if st.button("Upload", type="primary", width="stretch"):
         invalid_upload_rows = upload_rows[
             upload_rows[required_sap_fields].fillna("").apply(lambda x: x.astype(str).str.strip()).eq("").any(axis=1)
         ]
+        missing_resume_path_rows = upload_rows[
+            upload_rows["File Name"].fillna("").astype(str).str.strip().map(
+                lambda file_name: not str(st.session_state.resume_paths.get(file_name, "")).strip()
+            )
+        ]
         if not invalid_upload_rows.empty:
             invalid_names = ", ".join(
                 str(row.get("File Name", "")).strip() or f"row {idx + 1}"
@@ -1201,6 +1170,16 @@ if st.button("Upload", type="primary", width="stretch"):
             st.error(
                 "SAP upload requires JR Number, Email, Phone, First Name, and Last Name. "
                 f"Missing values found in: {invalid_names}"
+            )
+            st.stop()
+        if not missing_resume_path_rows.empty:
+            invalid_names = ", ".join(
+                str(row.get("File Name", "")).strip() or f"row {idx + 1}"
+                for idx, row in missing_resume_path_rows.iterrows()
+            )
+            st.error(
+                "SAP upload requires a saved resume path. "
+                f"Missing resume path found in: {invalid_names}"
             )
             st.stop()
         st.session_state.pending_upload_rows = upload_rows.to_dict(orient="records")
@@ -1375,7 +1354,7 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
                 results_log.append(
                     {
                         "File": row["File Name"],
-                        "Status": normalize_upload_error(error),
+                        "Status": _upload_report_status(normalize_upload_error(error)),
                     }
                 )
 
@@ -1385,8 +1364,8 @@ if st.session_state.upload_confirmed and st.session_state.pending_upload_rows:
         friendly = normalize_upload_error(error)
         if not results_log:
             for _, row in upload_rows.iterrows():
-                results_log.append({"File": row["File Name"], "Status": friendly})
-        status_box.error(f"SAP upload failed: {friendly}")
+                results_log.append({"File": row["File Name"], "Status": _upload_report_status(friendly)})
+        status_box.error(friendly)
     finally:
         if bot:
             try:

@@ -63,6 +63,24 @@ jr_options = ["— select —"] + sorted(jr_master.keys())
 def _safe(val) -> str:
     return str(val).strip() if val else ""
 
+
+def _missing_required_rows(rows: list[dict]) -> list[str]:
+    missing_rows = []
+    for idx, row in enumerate(rows):
+        missing = []
+        if not _safe(row.get("_first")) or not _safe(row.get("_last")):
+            missing.append("Candidate Name")
+        if not _safe(row.get("Email ID")):
+            missing.append("Email ID")
+        if not _safe(row.get("Contact Number")):
+            missing.append("Contact Number")
+        if not _safe(row.get("Resume File")) or not row.get("_file_bytes"):
+            missing.append("Resume File")
+        if missing:
+            label = _safe(row.get("Resume File")) or f"row {idx + 1}"
+            missing_rows.append(f"{label}: {', '.join(missing)}")
+    return missing_rows
+
 def _extract_name_from_email(email: str) -> str:
     """Extract name from email: john.doe@company.com → John Doe"""
     if not email or "@" not in email:
@@ -192,9 +210,9 @@ if st.session_state.upload_rows:
         hide_index=True,
         column_config={
             "S.No"          : st.column_config.NumberColumn(disabled=True, width="small"),
-            "Candidate Name": st.column_config.TextColumn(width="medium"),
-            "Email ID"      : st.column_config.TextColumn(width="medium"),
-            "Contact Number": st.column_config.TextColumn(width="medium"),
+            "Candidate Name": st.column_config.TextColumn(width="medium", required=True),
+            "Email ID"      : st.column_config.TextColumn(width="medium", required=True),
+            "Contact Number": st.column_config.TextColumn(width="medium", required=True),
             "Resume File"   : st.column_config.TextColumn(disabled=True, width="medium"),
         },
         num_rows="fixed",
@@ -244,6 +262,14 @@ if st.session_state.upload_rows:
                 "_first"        : first_name,
                 "_last"         : last_name,
             })
+
+        missing_rows = _missing_required_rows(merged)
+        if missing_rows:
+            st.error(
+                "JR No, candidate name, email, phone, and resume file are required before submitting. "
+                "Please complete: " + "; ".join(missing_rows)
+            )
+            st.stop()
 
         progress_bar  = st.progress(0, text="Saving to database…")
         inserted_ids  = []

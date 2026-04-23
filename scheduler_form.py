@@ -135,7 +135,7 @@ def _report_status(sap_status: str, sap_error: str = "") -> str:
     if sap_status == "Done":
         return "Success"
     if "requisition id" in str(sap_error or "").lower() and "not found" in str(sap_error or "").lower():
-        return "Job not found"
+        return "Job id not found"
     return "Failed"
 
 
@@ -267,12 +267,7 @@ def run_pipeline() -> dict:
             continue
 
         if not bot:
-            log.warning("     SAP bot unavailable — marking Skipped")
-            _patch_record(record_id, {
-                "upload_to_sap": "Skipped",
-                "error_message": "SAP bot unavailable",
-                "modified_at":   _now_iso(),
-            })
+            log.warning("     SAP bot unavailable - leaving record Pending")
             summary["skipped"] += 1
             _add_result(by_recruiter, recruiter_email, file_name, "Failed")
             continue

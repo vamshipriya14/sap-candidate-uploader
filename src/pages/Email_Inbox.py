@@ -22,7 +22,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from auth import require_login, show_navigation, show_user_profile
-from notifier import _get_app_token, send_upload_notification
+from notifier import _get_app_token, _upload_report_status, send_upload_notification
 from resume_parser import parse_resume
 from resume_repository import (
     _headers,
@@ -37,7 +37,7 @@ from resume_repository import (
     SUPABASE_TABLE,
 )
 from sap_bot_headless import SAPBot
-from uploader import upload_to_sap
+from uploader import missing_upload_fields, upload_to_sap
 
 # ─────────────────────────────────────────────────────────────
 # CONFIG
@@ -656,7 +656,7 @@ if process_all:
 
             if not att:
                 st.error(f"❌ Resume not found for {cand_label}")
-                results_log.append({"File": cand_label, "Status": "Resume Not Found"})
+                results_log.append({"File": cand_label, "Status": "Failed"})
                 continue
 
             file_name = att["name"]
@@ -830,13 +830,40 @@ if process_all:
                                 f"❌ Could not recover record for {cand_label} — "
                                 f"skipping SAP upload to avoid double submission."
                             )
-                            results_log.append({"File": file_name, "Status": "Duplicate — ID not recovered"})
+                            results_log.append({"File": file_name, "Status": "Failed"})
                             continue
                     else:
                         st.error(f"DB insert failed: {e}")
                         continue
 
             st.write(f"💾 DB Ready → {db_record_id}")
+
+            missing = missing_upload_fields({
+                "jr_number": jr_no,
+                "first_name": first_name,
+                "last_name": last_name,
+                "email": row_data["Email"],
+                "phone": row_data["Phone"],
+                "resume_file": resume_path,
+            })
+            if missing:
+                st.info(f"Skipping SAP upload - missing required data: {', '.join(missing)}")
+                if db_record_id:
+                    try:
+                        requests.patch(
+                            f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{db_record_id}",
+                            headers=_headers(),
+                            json={
+                                "upload_to_sap": "Skipped",
+                                "error_message": "",
+                                "modified_by": from_email,
+                                "modified_at": datetime.now().isoformat(),
+                            },
+                            timeout=10,
+                        )
+                    except Exception as e:
+                        st.warning(f"Failed to mark incomplete record as Skipped: {e}")
+                continue
 
             # ─────────────────────────────
             # 7. SAP Upload Decision
@@ -845,7 +872,7 @@ if process_all:
 
             if not upload_needed:
                 st.info("⏭ Already uploaded to SAP")
-                results_log.append({"File": file_name, "Status": "Already in SAP"})
+                results_log.append({"File": file_name, "Status": "Success"})
                 continue
 
             if not bot:
@@ -883,6 +910,7 @@ if process_all:
 
                 except Exception as e:
                     sap_error = str(e)
+                    sap_status = "Failed"
 
                     if any(err in sap_error.lower() for err in NON_CRITICAL_SAP_ERRORS):
                         sap_status = "Skipped"
@@ -891,6 +919,7 @@ if process_all:
 
                     # Dead Selenium session — restart bot before retrying
                     if any(err in sap_error.lower() for err in DEAD_SESSION_ERRORS):
+                        sap_status = "Pending"
                         st.warning(f"⚠️ SAP session died (attempt {attempt + 1}) — restarting bot…")
                         try:
                             bot.quit()
@@ -987,7 +1016,7 @@ if process_all:
 
             results_log.append({
                 "File": file_name,
-                "Status": "Success" if sap_status == "Done" else sap_error[:100],
+                "Status": _upload_report_status("Success" if sap_status == "Done" else sap_error),
             })
             overall_log.append({
                 "Email": subject,

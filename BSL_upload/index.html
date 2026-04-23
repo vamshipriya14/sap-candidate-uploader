@@ -633,15 +633,15 @@ function renderTable() {
       <td class="col-sno">${i + 1}</td>
       <td class="col-name">
         <input class="cell-input" type="text" value="${esc(r.name)}"
-          placeholder="Full name" oninput="updateField(${r.id},'name',this.value)" />
+          placeholder="Full name" required oninput="updateField(${r.id},'name',this.value)" />
       </td>
       <td class="col-email">
         <input class="cell-input" type="email" value="${esc(r.email)}"
-          placeholder="email@example.com" oninput="updateField(${r.id},'email',this.value)" />
+          placeholder="email@example.com" required oninput="updateField(${r.id},'email',this.value)" />
       </td>
       <td class="col-phone">
         <input class="cell-input" type="tel" value="${esc(r.phone)}"
-          placeholder="+91XXXXXXXXXX" oninput="updateField(${r.id},'phone',this.value)" />
+          placeholder="+91XXXXXXXXXX" required oninput="updateField(${r.id},'phone',this.value)" />
       </td>
       <td class="col-file" title="${esc(r.file.name)}">${esc(r.file.name)}</td>
       <td class="col-status">${badge(r.status)}</td>
@@ -785,6 +785,14 @@ submitBtn.addEventListener("click", async () => {
   if (!rows.length) {
     toast("No resumes to submit", "err"); return;
   }
+  const incomplete = rows.filter(row => row.status !== "saved").filter(row => {
+    const nameParts = row.name.trim().split(/\s+/).filter(Boolean);
+    return nameParts.length < 2 || !row.email.trim() || !row.phone.trim() || !row.file;
+  });
+  if (incomplete.length) {
+    toast("Candidate name, email, phone, and resume file are required for every row", "err", 7000);
+    return;
+  }
 
   submitBtn.disabled = true;
   showLoader("Uploading resumes…");
@@ -806,8 +814,9 @@ submitBtn.addEventListener("click", async () => {
       if (!uploadResp.ok) throw new Error(`Upload ${uploadResp.status}`);
       const uploadData = await uploadResp.json();
       row.path = uploadData.path || "";
+      if (!row.path) throw new Error("Resume path missing");
 
-      const nameParts = row.name.trim().split(" ");
+      const nameParts = row.name.trim().split(/\s+/).filter(Boolean);
       candidates.push({
         first_name:  nameParts[0] || "",
         last_name:   nameParts.slice(1).join(" "),
