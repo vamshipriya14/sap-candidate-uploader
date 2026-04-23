@@ -2,6 +2,8 @@ streamlit
 selenium>=4.15.0
 pdfplumber
 python-docx
+pytesseract
+pypdfium2
 spacy
 phonenumbers
 requests

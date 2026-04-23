@@ -2,3 +2,5 @@ chromium
 chromium-driver
 libnss3
 libgbm1
+tesseract-ocr
+tesseract-ocr-eng

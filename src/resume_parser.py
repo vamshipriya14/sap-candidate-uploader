@@ -6,6 +6,13 @@ import docx
 import spacy
 import phonenumbers
 
+try:
+    import pytesseract
+    import pypdfium2 as pdfium
+except Exception:
+    pytesseract = None
+    pdfium = None
+
 nlp = spacy.load("en_core_web_sm")
 
 # =========================
@@ -15,9 +22,11 @@ def extract_text(file):
     text = ""
 
     if file.name.endswith(".pdf"):
+        file.seek(0)
         with pdfplumber.open(file) as pdf:
             for p in pdf.pages:
-                text += (p.extract_text() or "") + "\n"
+                page_text = p.extract_text() or p.extract_text(layout=True) or ""
+                text += page_text + "\n"
 
     elif file.name.endswith(".docx"):
         file.seek(0)
@@ -30,6 +39,52 @@ def extract_text(file):
                     text += cell.text + "\n"
 
     return text
+
+
+def _should_try_ocr(text):
+    stripped = re.sub(r"\s+", " ", str(text or "")).strip()
+    return len(stripped) < 50
+
+
+def extract_text_via_ocr(file):
+    if pytesseract is None or pdfium is None:
+        return ""
+    if not str(getattr(file, "name", "")).lower().endswith(".pdf"):
+        return ""
+
+    try:
+        file.seek(0)
+        pdf_bytes = file.read()
+        if not pdf_bytes:
+            return ""
+
+        pdf = pdfium.PdfDocument(pdf_bytes)
+        parts = []
+        max_pages = min(len(pdf), 5)
+        for index in range(max_pages):
+            page = pdf[index]
+            bitmap = page.render(scale=2.0)
+            image = bitmap.to_pil()
+            text = pytesseract.image_to_string(image) or ""
+            if text.strip():
+                parts.append(text)
+        return "\n".join(parts).strip()
+    except Exception:
+        return ""
+
+
+def extract_name_from_filename(file_name):
+    base = re.sub(r"\.[^.]+$", "", str(file_name or "").strip())
+    base = re.sub(r"[_\-]+", " ", base)
+    base = re.sub(r"\s+", " ", base).strip()
+    words = [w for w in re.split(r"\s+", base) if w]
+    words = [w for w in words if w.isalpha() and w.lower() not in INVALID_WORDS]
+    if not words:
+        return "", ""
+    if len(words) == 1:
+        return words[0].capitalize(), ""
+    pretty = [w.capitalize() for w in words[:4]]
+    return " ".join(pretty[:-1]), pretty[-1]
 
 
 # =========================
@@ -91,6 +146,8 @@ INVALID_WORDS = {
 
 def extract_name(text, email=None):
     lines = [l.strip() for l in text.split("\n") if l.strip()]
+    if not lines:
+        return "", "", "low"
 
     def clean_line(line):
         line = re.sub(r'\S+@\S+', '', line)               # remove emails
@@ -195,6 +252,10 @@ def convert_docx_to_pdf(file) -> str:
 # =========================
 def parse_resume(file) -> dict:
     text = extract_text(file)
+    if _should_try_ocr(text):
+        ocr_text = extract_text_via_ocr(file)
+        if len(ocr_text.strip()) > len(text.strip()):
+            text = ocr_text
     email = extract_email(text)
     first, last, confidence = extract_name(text, email)
     phone = extract_phone(text)
@@ -210,6 +271,11 @@ def parse_resume(file) -> dict:
         first, last, confidence = extract_name(text, email)
         phone = extract_phone(text)
         code, country = extract_country(phone)
+
+    if not first and not last:
+        first, last = extract_name_from_filename(getattr(file, "name", ""))
+        if first or last:
+            confidence = "low"
 
     return {
         "first_name":  first,
