@@ -6,6 +6,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
+from pages.Pending_Client_Emails import pretty_user_name
 
 
 # Import resume_repository lazily to avoid circular imports if any
