@@ -196,51 +196,31 @@ def trigger_github_workflow(record_ids: list, recruiter_email: str) -> tuple[boo
 
 
 # ── Recruiter email widget with suggestions ──────────────────────────────────
-_MANUAL_OPTION = "✏️ Type manually…"
+
 
 def recruiter_email_widget(_suggestions: list = None, default_email: str = "") -> str:
-    """
-    Render a recruiter-email picker.
-    - Shows a selectbox with known recruiter emails + a "Type manually" escape hatch.
-    - Falls back to plain text_input if no suggestions are configured.
-
-    Returns the final email string (stripped, lowercase).
-    """
     suggestions = _suggestions if _suggestions is not None else EXTERNAL_RECRUITERS
+    email_lower = default_email.strip().lower()
+
     if not suggestions:
+        # No list configured — plain text input
         return st.text_input(
             "Recruiter Email ID",
-            value="",
+            value=email_lower,
+            placeholder="Enter your email…",
             help="Your email to receive SAP upload notifications.",
         ).strip().lower()
 
-    email_lower = default_email.strip().lower()
-    in_list     = email_lower in suggestions
-
-    if in_list:
-        default_idx = suggestions.index(email_lower)
-    else:
-        default_idx = len(suggestions)  # "✏️ Type manually…"
-
-    options = suggestions + [_MANUAL_OPTION]
+    # Pre-select logged-in user's email if it's in the list, else default to first
+    default_idx = suggestions.index(email_lower) if email_lower in suggestions else 0
 
     selected = st.selectbox(
         "Recruiter Email ID",
-        options=options,
+        options=suggestions,
         index=default_idx,
-        help="Select a known recruiter or choose '✏️ Type manually…' for a different address.",
+        help="Select your email to receive SAP upload notifications.",
     )
-
-    if selected == _MANUAL_OPTION:
-        custom = st.text_input(
-            "Enter recruiter email",
-            value=email_lower if not in_list else "",
-            placeholder="someone@example.com",
-        )
-        return custom.strip().lower()
-
     return selected.strip().lower()
-
 
 # ── Session state ───────────────────────────────────────────────────────────
 if "upload_rows" not in st.session_state:
