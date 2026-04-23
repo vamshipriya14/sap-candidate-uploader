@@ -91,10 +91,15 @@ def extract_name_from_filename(file_name):
 # 🔶 EMAIL
 # =========================
 def extract_email(text):
-    # Only normalize whitespace around @ and . within likely email tokens
-    # (avoid mangling unrelated dots/sentences in the whole text)
+    # 🔥 Fix broken emails split across lines or spaces
+    text = re.sub(r'(\w+)\.\s*\n\s*(\w+@)', r'\1.\2', text)
+
+    # Normalize spaces around @ and .
     text = re.sub(r'(\S+)\s*@\s*(\S+)', r'\1@\2', text)
+    text = re.sub(r'(\S+)\s*\.\s*(\S+)', r'\1.\2', text)
+
     emails = re.findall(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', text)
+
     return emails[0] if emails else ""
 
 
@@ -256,6 +261,8 @@ def parse_resume(file) -> dict:
         ocr_text = extract_text_via_ocr(file)
         if len(ocr_text.strip()) > len(text.strip()):
             text = ocr_text
+    # Fix broken words across newlines (common in PDFs)
+    text = re.sub(r'(\S)\n(\S)', r'\1 \2', text)
     email = extract_email(text)
     first, last, confidence = extract_name(text, email)
     phone = extract_phone(text)
@@ -266,6 +273,8 @@ def parse_resume(file) -> dict:
         pdf_path = convert_docx_to_pdf(file)
         with pdfplumber.open(pdf_path) as pdf:
             text = "".join(p.extract_text() or "" for p in pdf.pages)
+            # Fix broken words across newlines (common in PDFs)
+            text = re.sub(r'(\S)\n(\S)', r'\1 \2', text)
 
         email = extract_email(text)
         first, last, confidence = extract_name(text, email)
