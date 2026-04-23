@@ -11,7 +11,7 @@ import streamlit.components.v1 as components
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from auth import require_login, show_navigation, show_user_profile
-from notifier import send_client_email
+from notifier import send_client_email, pretty_user_name
 from resume_repository import (
     fetch_active_jr_master,
     fetch_unsent_email_records,
@@ -45,15 +45,6 @@ st.caption(f"Logged in as **{user['name']}** ({user['email']})")
 def _safe(val) -> str:
     """Return stripped string, treating None/falsy as empty."""
     return str(val).strip() if val else ""
-
-
-def pretty_user_name(u: dict) -> str:
-    display = (u.get("name") or "").strip()
-    if display and "@" not in display:
-        return " ".join(part.capitalize() for part in display.replace(".", " ").split())
-    email = (u.get("email") or "").split("@", 1)[0]
-    return " ".join(part.capitalize() for part in email.replace(".", " ").replace("_", " ").split())
-
 
 def _get_default_signature_template(user_dict: dict) -> str:
     name = user_dict.get("name", "Name")

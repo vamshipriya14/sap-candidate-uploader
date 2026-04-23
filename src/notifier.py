@@ -6,7 +6,6 @@ from datetime import datetime
 from dotenv import load_dotenv
 import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
-from pages.Pending_Client_Emails import pretty_user_name
 
 
 # Import resume_repository lazily to avoid circular imports if any
@@ -87,6 +86,14 @@ def _get_app_token() -> str:
     if "access_token" not in data:
         raise Exception(f"Token error: {data.get('error_description', data)}")
     return data["access_token"]
+
+
+def pretty_user_name(u: dict) -> str:
+    display = (u.get("name") or "").strip()
+    if display and "@" not in display:
+        return " ".join(part.capitalize() for part in display.replace(".", " ").split())
+    email = (u.get("email") or "").split("@", 1)[0]
+    return " ".join(part.capitalize() for part in email.replace(".", " ").replace("_", " ").split())
 
 
 def _upload_report_status(status: str) -> str:
