@@ -141,7 +141,7 @@ with col_jr:
 with col_email:
     recruiter_email = st.text_input(
         "Recruiter Email ID",
-        value="sandhyam@revatechnosys.com",
+        value=" ",
         help="Your email to receive SAP upload notifications.",
     )
 

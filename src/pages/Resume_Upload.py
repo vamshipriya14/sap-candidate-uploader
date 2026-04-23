@@ -200,7 +200,7 @@ with col_jr:
     skill   = _safe(jr_meta.get("skill_name") or jr_meta.get("skill", ""))
 
 with col_email:
-    default_email = "sandhyam@revatechnosys.com" if is_public else user.get("email", "")
+    default_email = " " if is_public else user.get("email", "")
     recruiter_email = st.text_input(
         "Recruiter Email ID",
         value=default_email,
