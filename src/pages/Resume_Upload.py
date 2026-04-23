@@ -198,43 +198,43 @@ def trigger_github_workflow(record_ids: list, recruiter_email: str) -> tuple[boo
 # ── Recruiter email widget with suggestions ──────────────────────────────────
 _MANUAL_OPTION = "✏️ Type manually…"
 
-def recruiter_email_widget(default_email: str, _suggestions: list = None) -> str:
+def recruiter_email_widget(_suggestions: list = None, default_email: str = "") -> str:
     """
     Render a recruiter-email picker.
-    - If external_recruiters.txt has entries: show a selectbox with those emails
-      + a "Type manually" escape hatch that reveals a text_input.
-    - If the file is empty / missing: fall back to a plain text_input (original behaviour).
+    - Shows a selectbox with known recruiter emails + a "Type manually" escape hatch.
+    - Falls back to plain text_input if no suggestions are configured.
 
     Returns the final email string (stripped, lowercase).
     """
     suggestions = _suggestions if _suggestions is not None else EXTERNAL_RECRUITERS
     if not suggestions:
-        # No suggestions available — plain text input (original behaviour)
         return st.text_input(
             "Recruiter Email ID",
-            value=default_email,
+            value="",
             help="Your email to receive SAP upload notifications.",
         ).strip().lower()
 
-    # Build dropdown options
-    options = suggestions + [_MANUAL_OPTION]
+    email_lower = default_email.strip().lower()
+    in_list     = email_lower in suggestions
 
-    # Pre-select the logged-in user's email if it's already in the list
-    default_idx = 0
-    if default_email and default_email.lower() in suggestions:
-        default_idx = suggestions.index(default_email.lower())
+    if in_list:
+        default_idx = suggestions.index(email_lower)
+    else:
+        default_idx = len(suggestions)  # "✏️ Type manually…"
+
+    options = suggestions + [_MANUAL_OPTION]
 
     selected = st.selectbox(
         "Recruiter Email ID",
         options=options,
         index=default_idx,
-        help="Select from known recruiters or choose '✏️ Type manually…' to enter a different address.",
+        help="Select a known recruiter or choose '✏️ Type manually…' for a different address.",
     )
 
     if selected == _MANUAL_OPTION:
         custom = st.text_input(
             "Enter recruiter email",
-            value=default_email if default_email not in suggestions else "",
+            value=email_lower if not in_list else "",
             placeholder="someone@example.com",
         )
         return custom.strip().lower()
@@ -262,8 +262,10 @@ with col_jr:
     skill   = _safe(jr_meta.get("skill_name") or jr_meta.get("skill", ""))
 
 with col_email:
-    default_email = "" if is_public else user.get("email", "")
-    recruiter_email = recruiter_email_widget(default_email, EXTERNAL_RECRUITERS)
+    # Internal users: pre-fill with their logged-in email
+    # Public users: show suggestions dropdown with no pre-selection
+    _default = "" if is_public else user.get("email", "").strip().lower()
+    recruiter_email = recruiter_email_widget(EXTERNAL_RECRUITERS, _default)
 
 # Display skill and job details in next line (collapsible)
 if jr_no and jr_meta:
