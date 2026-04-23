@@ -105,8 +105,7 @@ GH_EVENT = st.secrets.get("GH_EVENT_TYPE", "resume-form-submitted")
 @st.cache_data(ttl=600)
 def _load_external_recruiters() -> list[str]:
     """Read recruiter email suggestions from external_recruiters.txt in the project root."""
-    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    txt_path = os.path.join(root_dir, "external_recruiters.txt")
+    txt_path = "external_recruiters.txt"
     if not os.path.exists(txt_path):
         return []
     with open(txt_path, "r", encoding="utf-8") as fh:
