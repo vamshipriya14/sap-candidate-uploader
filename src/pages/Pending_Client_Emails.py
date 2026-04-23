@@ -559,7 +559,6 @@ if not edited_display_df.equals(display_df):
         changed_count += 1
     if changed_count:
         st.success(f"Saved {changed_count} candidate row(s)")
-        st.rerun()
     candidate_rows = changed_candidate_rows
 
 # ── send ──────────────────────────────────────────────────────────────────────
