@@ -56,7 +56,7 @@ jobs:
           AZURE_CLIENT_SECRET       : ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_TENANT_ID           : ${{ secrets.AZURE_TENANT_ID }}
           # Scheduler tuning
-          SCHEDULER_SUBMIT_TO_SAP   : 'false'
+          SCHEDULER_SUBMIT_TO_SAP   : 'true'
           SCHEDULER_MAX_RECORDS     : '50'
           SCHEDULER_EMAIL_CC        : ${{ secrets.SCHEDULER_EMAIL_CC }}
         run: python scheduler_form.py
