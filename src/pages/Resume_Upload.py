@@ -236,9 +236,12 @@ with col_jr:
     skill   = _safe(jr_meta.get("skill_name") or jr_meta.get("skill", ""))
 
 with col_email:
-    # Internal users: pre-fill with their logged-in email
-    # Public users: show suggestions dropdown with no pre-selection
-    _default = "" if is_public else user.get("email", "").strip().lower()
+    # Priority: logged-in email (internal) > query param > session cache > blank
+    _default = (
+        user.get("email", "").strip().lower()
+        if not is_public
+        else st.query_params.get("recruiter_email", "").strip().lower()
+    )
     recruiter_email = recruiter_email_widget(_default)
 
 # Display skill and job details in next line (collapsible)
@@ -499,4 +502,6 @@ if st.session_state.upload_rows:
         else:
             st.warning("No new records queued for SAP upload.")
 
+        # Write email into URL so it survives refresh
+        st.query_params["recruiter_email"] = recruiter_email
         st.session_state.upload_rows = []
