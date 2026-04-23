@@ -154,7 +154,7 @@ def send_upload_notification(access_token, user, results, submit_mode, attachmen
             <p style='color:#cce4ff; margin:4px 0 0'>{timestamp} &nbsp;·&nbsp; {mode_label}</p>
         </div>
         <div style='border:1px solid #dee2e6; border-top:none; padding:24px; border-radius:0 0 8px 8px'>
-            <p>Hi <strong>{user['name']}</strong>,</p>
+            <p>Hi <strong>{pretty_user_name(user)}</strong>,</p>
             <p>Here's the summary of your SAP upload session:</p>
             <div style='background:{summary_bg}; padding:12px 16px; border-radius:6px; margin:16px 0'>
                 {summary_text}
