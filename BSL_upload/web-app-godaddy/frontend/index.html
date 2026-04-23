@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Resume Upload — SAP Candidate Submission</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & Variables ───────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #f0f2f5;
+      --surface:  #ffffff;
+      --border:   #e2e5ea;
+      --accent:   #0f52ba;
+      --accent-h: #0a3d8a;
+      --green:    #15803d;
+      --green-bg: #dcfce7;
+      --red:      #b91c1c;
+      --red-bg:   #fee2e2;
+      --amber:    #92400e;
+      --amber-bg: #fef3c7;
+      --text:     #111827;
+      --muted:    #6b7280;
+      --light:    #f8fafc;
+      --shadow:   0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04);
+      --radius:   10px;
+      --font:     'DM Sans', sans-serif;
+      --mono:     'DM Mono', monospace;
+    }
+
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 2rem 1rem 4rem;
+    }
+
+    /* ── Layout ──────────────────────────────────────────────────────── */
+    .page-wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    /* ── Header ──────────────────────────────────────────────────────── */
+    .page-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 1.75rem;
+    }
+    .header-icon {
+      width: 44px; height: 44px;
+      background: var(--accent);
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; flex-shrink: 0;
+    }
+    .page-header h1 {
+      font-size: 22px; font-weight: 700; letter-spacing: -.3px;
+      color: var(--text);
+    }
+    .page-header p { font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+    /* ── Card ────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 1.75rem 2rem;
+      margin-bottom: 1.25rem;
+    }
+    .card-title {
+      font-size: 13px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .07em;
+      margin-bottom: 1rem;
+    }
+
+    /* ── Form Row ────────────────────────────────────────────────────── */
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1.6fr;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    @media (max-width: 640px) { .form-row { grid-template-columns: 1fr; } }
+
+    .field { display: flex; flex-direction: column; gap: 5px; }
+    .field label {
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .06em;
+    }
+    .field input, .field select {
+      padding: 9px 12px;
+      font-size: 14px;
+      font-family: var(--font);
+      border: 1.5px solid var(--border);
+      border-radius: 7px;
+      background: var(--light);
+      color: var(--text);
+      transition: border-color .15s, box-shadow .15s;
+      width: 100%;
+    }
+    .field input:focus, .field select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(15,82,186,.1);
+      background: #fff;
+    }
+    .field input::placeholder { color: #b0b8c4; }
+
+    /* ── JR Info Banner ──────────────────────────────────────────────── */
+    #jr-info {
+      display: none;
+      background: #eff6ff;
+      border-left: 3px solid var(--accent);
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: #1e40af;
+      margin-bottom: 1rem;
+    }
+    #jr-info strong { font-weight: 600; }
+
+    /* ── Drop Zone ───────────────────────────────────────────────────── */
+    .drop-zone {
+      border: 2px dashed #c9d3e0;
+      border-radius: 10px;
+      padding: 2rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      position: relative;
+      transition: border-color .2s, background .2s;
+      background: var(--light);
+    }
+    .drop-zone:hover, .drop-zone.dragging {
+      border-color: var(--accent);
+      background: #eff6ff;
+    }
+    .drop-zone input[type=file] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .drop-icon { font-size: 32px; display: block; margin-bottom: 8px; }
+    .drop-label { font-size: 15px; font-weight: 600; color: #1e293b; }
+    .drop-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+    /* ── Action Bar ──────────────────────────────────────────────────── */
+    .action-bar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin: 1.25rem 0 1rem;
+      flex-wrap: wrap;
+    }
+    .btn {
+      padding: 9px 20px;
+      font-size: 13px; font-weight: 600;
+      font-family: var(--font);
+      border: none; border-radius: 7px;
+      cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px;
+      transition: all .15s;
+      white-space: nowrap;
+    }
+    .btn:disabled { opacity: .45; cursor: not-allowed; pointer-events: none; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-h); }
+    .btn-success { background: var(--green); color: #fff; }
+    .btn-success:hover { background: #166534; }
+    .btn-ghost {
+      background: transparent; color: var(--red);
+      border: 1.5px solid #fca5a5;
+    }
+    .btn-ghost:hover { background: var(--red-bg); }
+
+    .status-indicator {
+      margin-left: auto;
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; color: var(--muted);
+    }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2.5px solid #e2e8f0;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .65s linear infinite;
+      display: none;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Table ───────────────────────────────────────────────────────── */
+    .tbl-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    table {
+      width: 100%; border-collapse: collapse;
+      font-size: 13px; min-width: 700px;
+    }
+    thead th {
+      background: var(--light);
+      padding: 10px 12px;
+      text-align: left;
+      font-size: 11px; font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase; letter-spacing: .05em;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid #f1f5f9; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #fafbfc; }
+    tbody td { padding: 7px 8px; vertical-align: middle; }
+
+    .col-sno    { width: 46px; text-align: center; color: var(--muted); font-size: 12px; }
+    .col-name   { min-width: 170px; }
+    .col-email  { min-width: 200px; }
+    .col-phone  { min-width: 145px; }
+    .col-file   { min-width: 140px; color: var(--muted); font-size: 12px; font-family: var(--mono); }
+    .col-status { width: 90px; text-align: center; }
+    .col-del    { width: 44px; text-align: center; }
+
+    .cell-input {
+      width: 100%; padding: 6px 8px;
+      font-size: 13px; font-family: var(--font);
+      border: 1.5px solid transparent;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--text);
+      transition: border-color .12s, background .12s;
+    }
+    .cell-input:hover { border-color: var(--border); }
+    .cell-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      background: #fff;
+      box-shadow: 0 0 0 3px rgba(15,82,186,.08);
+    }
+
+    /* ── Status Badges ───────────────────────────────────────────────── */
+    .badge {
+      font-size: 10px; font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 99px;
+      display: inline-flex; align-items: center; gap: 4px;
+      white-space: nowrap;
+    }
+    .badge-pending  { background: #f1f5f9; color: #64748b; }
+    .badge-parsing  { background: #dbeafe; color: #1d4ed8; }
+    .badge-done     { background: #dcfce7; color: #15803d; }
+    .badge-error    { background: var(--red-bg); color: var(--red); }
+    .badge-uploading{ background: #fef3c7; color: #92400e; }
+    .badge-saved    { background: #dcfce7; color: #15803d; }
+
+    /* ── Empty State ─────────────────────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: #a0aec0;
+      font-size: 14px;
+    }
+    .empty-state .empty-icon { font-size: 32px; display: block; margin-bottom: 8px; }
+
+    /* ── Delete Button ───────────────────────────────────────────────── */
+    .del-btn {
+      background: none; border: none; cursor: pointer;
+      color: #d1d5db; font-size: 15px;
+      padding: 3px 7px; border-radius: 4px;
+      transition: color .12s;
+    }
+    .del-btn:hover { color: var(--red); }
+
+    /* ── Summary Panel ───────────────────────────────────────────────── */
+    #summary-panel {
+      display: none;
+      animation: fadeIn .3s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    .summary-header {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 1rem;
+    }
+    .summary-result-icon { font-size: 24px; }
+    .summary-title { font-size: 16px; font-weight: 700; }
+    .summary-subtitle { font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+    .summary-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .summary-table th {
+      background: var(--light);
+      padding: 8px 12px;
+      text-align: left;
+      font-size: 11px; font-weight: 700;
+      color: var(--muted); text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+    }
+    .summary-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; }
+    .summary-table tr:last-child td { border-bottom: none; }
+
+    /* ── Toast ───────────────────────────────────────────────────────── */
+    .toast {
+      position: fixed; bottom: 1.5rem; right: 1.5rem;
+      padding: 13px 18px;
+      border-radius: 9px;
+      font-size: 13px; font-weight: 500;
+      box-shadow: 0 4px 20px rgba(0,0,0,.14);
+      display: none; z-index: 9999;
+      max-width: 380px;
+      animation: toastIn .25s ease;
+    }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    .toast.ok  { background: var(--green-bg); color: var(--green); border-left: 4px solid var(--green); }
+    .toast.err { background: var(--red-bg);   color: var(--red);   border-left: 4px solid var(--red); }
+    .toast.info { background: #eff6ff;          color: #1d4ed8;     border-left: 4px solid #2563eb; }
+
+    /* ── Info note ───────────────────────────────────────────────────── */
+    .info-note {
+      background: #eff6ff; border-radius: 7px;
+      padding: 11px 14px; font-size: 12.5px; color: #1e40af;
+      display: flex; align-items: flex-start; gap: 8px;
+      line-height: 1.5;
+    }
+    .info-note .note-icon { flex-shrink: 0; font-size: 15px; margin-top: 1px; }
+
+    /* ── Loading overlay ─────────────────────────────────────────────── */
+    #loading-overlay {
+      position: fixed; inset: 0;
+      background: rgba(255,255,255,.8);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 9998;
+      display: none;
+    }
+    .loading-spinner {
+      width: 40px; height: 40px;
+      border: 4px solid #e2e8f0;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      margin-bottom: 14px;
+    }
+    .loading-text { font-size: 14px; color: var(--muted); font-weight: 500; }
+  </style>
+</head>
+<body>
+
+<div class="page-wrap">
+
+  <!-- Header -->
+  <div class="page-header">
+    <div class="header-icon">📤</div>
+    <div>
+      <h1>Direct Resume Upload</h1>
+      <p>Drop resumes · auto-parse · save to Supabase · SAP upload runs in background</p>
+    </div>
+  </div>
+
+  <!-- Step 1: JR + Email -->
+  <div class="card">
+    <div class="card-title">Step 1 — Job Requisition & Recruiter</div>
+    <div class="form-row">
+      <div class="field">
+        <label for="jrNo">JR Number *</label>
+        <select id="jrNo">
+          <option value="">— Loading JRs… —</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="recruiterEmail">Recruiter Email *</label>
+        <input type="email" id="recruiterEmail" placeholder="your.email@company.com" />
+      </div>
+    </div>
+    <div id="jr-info"></div>
+  </div>
+
+  <!-- Step 2: Upload -->
+  <div class="card">
+    <div class="card-title">Step 2 — Upload Resumes</div>
+
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" accept=".pdf,.docx" multiple />
+      <span class="drop-icon">📂</span>
+      <p class="drop-label">Drop resumes here or click to browse</p>
+      <p class="drop-sub">PDF or DOCX — multiple files accepted</p>
+    </div>
+
+    <div class="action-bar">
+      <button class="btn btn-primary" id="parseBtn" disabled>⚡ Parse All Resumes</button>
+      <button class="btn btn-success" id="submitBtn" disabled>✓ Submit Candidates</button>
+      <button class="btn btn-ghost"   id="clearBtn"  disabled>✕ Clear</button>
+      <div class="status-indicator">
+        <div class="spinner" id="spinner"></div>
+        <span id="statusText"></span>
+      </div>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="col-sno">#</th>
+            <th>Candidate Name</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>File</th>
+            <th class="col-status">Status</th>
+            <th class="col-del"></th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr><td colspan="7" class="empty-state">
+            <span class="empty-icon">📋</span>
+            Upload resumes to begin
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="info-note" style="margin-top:1rem;">
+      <span class="note-icon">ℹ️</span>
+      <span>Resumes are parsed on the server using our AI parser (spaCy + pdfplumber).
+      Review extracted details and edit any field before submitting.
+      SAP upload runs automatically in the background — you will receive an email when complete.</span>
+    </div>
+  </div>
+
+  <!-- Summary Panel -->
+  <div class="card" id="summary-panel">
+    <div class="summary-header">
+      <span class="summary-result-icon" id="summaryIcon">📊</span>
+      <div>
+        <div class="summary-title" id="summaryTitle">Submission Complete</div>
+        <div class="summary-subtitle" id="summarySubtitle"></div>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="summary-table">
+        <thead>
+          <tr>
+            <th>Candidate</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="summaryTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Loading Overlay -->
+<div id="loading-overlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text" id="loading-text">Processing…</div>
+</div>
+
+<script>
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  CONFIGURATION — set API_BASE to your Render.com backend URL ║
+// ╚══════════════════════════════════════════════════════════════╝
+const API_BASE = "%%BACKEND_URL%%";   // e.g. https://sap-resume-api.onrender.com
+// ──────────────────────────────────────────────────────────────
+
+let rows     = [];
+let nextId   = 1;
+let jrMaster = {};
+
+// ── DOM refs ──────────────────────────────────────────────────────────────
+const tbody      = document.getElementById("tbody");
+const jrSelect   = document.getElementById("jrNo");
+const recruiterEl= document.getElementById("recruiterEmail");
+const parseBtn   = document.getElementById("parseBtn");
+const submitBtn  = document.getElementById("submitBtn");
+const clearBtn   = document.getElementById("clearBtn");
+const spinnerEl  = document.getElementById("spinner");
+const statusText = document.getElementById("statusText");
+const dropZone   = document.getElementById("dropZone");
+const fileInput  = document.getElementById("fileInput");
+
+// ── Toast ─────────────────────────────────────────────────────────────────
+function toast(msg, type = "ok", dur = 4000) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.className = `toast ${type}`; t.style.display = "block";
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.display = "none"; }, dur);
+}
+
+// ── Loading overlay ───────────────────────────────────────────────────────
+function showLoader(msg = "Processing…") {
+  document.getElementById("loading-text").textContent = msg;
+  document.getElementById("loading-overlay").style.display = "flex";
+}
+function hideLoader() {
+  document.getElementById("loading-overlay").style.display = "none";
+}
+
+// ── Status / Spinner ──────────────────────────────────────────────────────
+function setStatus(t) { statusText.textContent = t; }
+function showSpin()   { spinnerEl.style.display = "block"; }
+function hideSpin()   { spinnerEl.style.display = "none"; }
+
+// ── Utility ───────────────────────────────────────────────────────────────
+function esc(s) {
+  return (s || "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+function badge(status) {
+  const map = {
+    pending:   ["Pending",   "badge-pending"],
+    parsing:   ["Parsing…",  "badge-parsing"],
+    done:      ["Parsed ✓",  "badge-done"],
+    error:     ["Error",     "badge-error"],
+    uploading: ["Uploading…","badge-uploading"],
+    saved:     ["Saved ✓",   "badge-saved"],
+  };
+  const [label, cls] = map[status] || ["Pending","badge-pending"];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+
+// ── Drop Zone ─────────────────────────────────────────────────────────────
+fileInput.addEventListener("change", () => { addFiles(fileInput.files); fileInput.value = ""; });
+dropZone.addEventListener("dragover",  e => { e.preventDefault(); dropZone.classList.add("dragging"); });
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragging"));
+dropZone.addEventListener("drop", e => {
+  e.preventDefault(); dropZone.classList.remove("dragging");
+  addFiles(e.dataTransfer.files);
+});
+
+function addFiles(files) {
+  let added = 0;
+  Array.from(files).filter(f => /\.(pdf|docx)$/i.test(f.name)).forEach(f => {
+    // Skip duplicates by name
+    if (rows.some(r => r.file.name === f.name)) return;
+    rows.push({ id: nextId++, file: f, name: "", email: "", phone: "", status: "pending", path: "" });
+    added++;
+  });
+  if (added) { renderTable(); updateButtons(); }
+}
+
+// ── Render Table ──────────────────────────────────────────────────────────
+function renderTable() {
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">
+      <span class="empty-icon">📋</span>Upload resumes to begin</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map((r, i) => `
+    <tr data-id="${r.id}">
+      <td class="col-sno">${i + 1}</td>
+      <td class="col-name">
+        <input class="cell-input" type="text" value="${esc(r.name)}"
+          placeholder="Full name" oninput="updateField(${r.id},'name',this.value)" />
+      </td>
+      <td class="col-email">
+        <input class="cell-input" type="email" value="${esc(r.email)}"
+          placeholder="email@example.com" oninput="updateField(${r.id},'email',this.value)" />
+      </td>
+      <td class="col-phone">
+        <input class="cell-input" type="tel" value="${esc(r.phone)}"
+          placeholder="+91XXXXXXXXXX" oninput="updateField(${r.id},'phone',this.value)" />
+      </td>
+      <td class="col-file" title="${esc(r.file.name)}">${esc(r.file.name)}</td>
+      <td class="col-status">${badge(r.status)}</td>
+      <td class="col-del">
+        <button class="del-btn" onclick="deleteRow(${r.id})" title="Remove">✕</button>
+      </td>
+    </tr>
+  `).join("");
+}
+
+function updateField(id, field, val) {
+  const row = rows.find(r => r.id === id);
+  if (row) row[field] = val;
+}
+function deleteRow(id) {
+  rows = rows.filter(r => r.id !== id);
+  renderTable(); updateButtons();
+}
+function refreshRowStatus(row) {
+  const tr = document.querySelector(`tr[data-id="${row.id}"]`);
+  if (!tr) return;
+  tr.querySelector(".col-status").innerHTML = badge(row.status);
+  const inputs = tr.querySelectorAll(".cell-input");
+  if (inputs[0]) inputs[0].value = row.name;
+  if (inputs[1]) inputs[1].value = row.email;
+  if (inputs[2]) inputs[2].value = row.phone;
+}
+function updateButtons() {
+  const has = rows.length > 0;
+  parseBtn.disabled  = !has;
+  submitBtn.disabled = !has;
+  clearBtn.disabled  = !has;
+}
+
+// ── Load JR Master ────────────────────────────────────────────────────────
+async function loadJRMaster() {
+  jrSelect.innerHTML = "<option value=''>— Loading JRs… —</option>";
+  try {
+    const res  = await fetch(`${API_BASE}/api/jr-master`);
+    if (!res.ok) throw new Error(`${res.status}`);
+    const data = await res.json();
+    jrMaster   = {};
+    jrSelect.innerHTML = "<option value=''>— Select JR —</option>";
+    data.forEach(jr => {
+      jrMaster[jr.jr_no] = jr;
+      const opt = document.createElement("option");
+      opt.value = jr.jr_no; opt.textContent = jr.jr_no;
+      jrSelect.appendChild(opt);
+    });
+    if (!data.length) toast("No active JR numbers found", "info");
+  } catch (e) {
+    jrSelect.innerHTML = "<option value=''>— Error loading JRs —</option>";
+    toast("Could not load JR list. Is the backend running?", "err", 6000);
+  }
+}
+
+jrSelect.addEventListener("change", () => {
+  const jr   = jrMaster[jrSelect.value];
+  const info = document.getElementById("jr-info");
+  if (jr) {
+    const skill   = esc(jr.skill_name || "—");
+    const details = esc((jr.job_details || "No details").substring(0, 120));
+    info.innerHTML = `<strong>Skill:</strong> ${skill}&nbsp;&nbsp;·&nbsp;&nbsp;<strong>Details:</strong> ${details}…`;
+    info.style.display = "block";
+  } else {
+    info.style.display = "none";
+  }
+});
+
+// ── Parse All (server-side via /api/parse-resume) ─────────────────────────
+parseBtn.addEventListener("click", async () => {
+  if (!rows.length) return;
+  const unparsed = rows.filter(r => r.status !== "saved");
+  if (!unparsed.length) { toast("All resumes already parsed", "info"); return; }
+
+  parseBtn.disabled = true;
+  setStatus("Parsing resumes…"); showSpin();
+
+  for (const row of unparsed) {
+    row.status = "parsing"; refreshRowStatus(row);
+    try {
+      const fd = new FormData();
+      fd.append("file", row.file);
+      const resp = await fetch(`${API_BASE}/api/parse-resume`, { method: "POST", body: fd });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      if (data.error && !data.first_name) throw new Error(data.error);
+
+      // Merge — only fill blank fields, never overwrite user edits
+      if (!row.name && (data.first_name || data.last_name)) {
+        row.name = `${data.first_name} ${data.last_name}`.trim();
+      }
+      if (!row.email && data.email) row.email = data.email;
+      if (!row.phone && data.phone) row.phone = data.phone;
+      row.status = "done";
+    } catch (e) {
+      row.status = "error";
+      console.warn("Parse failed for", row.file.name, e);
+    }
+    refreshRowStatus(row);
+  }
+
+  hideSpin(); setStatus(""); parseBtn.disabled = false;
+  toast(`Parsed ${unparsed.length} resume(s)`, "ok");
+});
+
+// ── Submit All ────────────────────────────────────────────────────────────
+submitBtn.addEventListener("click", async () => {
+  const jrNo           = jrSelect.value.trim();
+  const recruiterEmail = recruiterEl.value.trim();
+
+  if (!jrNo) {
+    toast("Please select a JR Number first", "err"); return;
+  }
+  if (!recruiterEmail || !recruiterEmail.includes("@")) {
+    toast("Please enter a valid recruiter email", "err"); return;
+  }
+  if (!rows.length) {
+    toast("No resumes to submit", "err"); return;
+  }
+
+  submitBtn.disabled = true;
+  showLoader("Uploading resumes…");
+  setStatus("Uploading…"); showSpin();
+
+  const jr      = jrMaster[jrNo] || {};
+  const skill   = jr.skill_name || "";
+  const candidates = [];
+
+  // Phase 1 — Upload each resume to Supabase Storage
+  for (const row of rows) {
+    if (row.status === "saved") continue;
+    row.status = "uploading"; refreshRowStatus(row);
+    try {
+      const fd = new FormData();
+      fd.append("file", row.file);
+      fd.append("jr_no", jrNo);
+      const uploadResp = await fetch(`${API_BASE}/api/upload-resume`, { method: "POST", body: fd });
+      if (!uploadResp.ok) throw new Error(`Upload ${uploadResp.status}`);
+      const uploadData = await uploadResp.json();
+      row.path = uploadData.path || "";
+
+      const nameParts = row.name.trim().split(" ");
+      candidates.push({
+        first_name:  nameParts[0] || "",
+        last_name:   nameParts.slice(1).join(" "),
+        email:       row.email || "",
+        phone:       row.phone || "",
+        file_name:   row.file.name,
+        resume_path: row.path,
+        _row_id:     row.id,
+      });
+      row.status = "done";
+    } catch (e) {
+      row.status = "error"; refreshRowStatus(row);
+      console.warn("Upload failed", row.file.name, e);
+    }
+    refreshRowStatus(row);
+  }
+
+  if (!candidates.length) {
+    hideLoader(); hideSpin(); setStatus(""); submitBtn.disabled = false;
+    toast("No candidates to submit — check for upload errors", "err");
+    return;
+  }
+
+  // Phase 2 — Insert into Supabase + trigger GitHub
+  showLoader("Submitting to database…");
+  try {
+    const subResp = await fetch(`${API_BASE}/api/submit-candidates`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        candidates,
+        jr_no:           jrNo,
+        recruiter_email: recruiterEmail,
+        skill,
+        client_recruiter:       jr.client_recruiter || "",
+        client_recruiter_email: jr.client_recruiter_email || "",
+      }),
+    });
+    const result = await subResp.json();
+
+    if (result.success) {
+      // Mark rows saved
+      candidates.forEach(c => {
+        const row = rows.find(r => r.id === c._row_id);
+        if (row) row.status = "saved";
+      });
+      renderTable();
+      showSummary(result);
+      toast(result.message, "ok", 7000);
+    } else {
+      toast(result.error || "Submission failed", "err");
+    }
+  } catch (e) {
+    toast("Network error: " + e.message, "err");
+  }
+
+  hideLoader(); hideSpin(); setStatus(""); submitBtn.disabled = false;
+});
+
+function showSummary(result) {
+  const panel = document.getElementById("summary-panel");
+  const icon  = document.getElementById("summaryIcon");
+  const title = document.getElementById("summaryTitle");
+  const sub   = document.getElementById("summarySubtitle");
+  const stbody= document.getElementById("summaryTbody");
+
+  icon.textContent  = result.count > 0 ? "✅" : "⚠️";
+  title.textContent = result.count > 0
+    ? `${result.count} Candidate(s) Queued for SAP Upload`
+    : "No new records saved";
+  sub.textContent   = result.github_fired
+    ? "GitHub workflow triggered — you will receive an email when SAP upload completes."
+    : "Records saved. The next scheduled workflow will process them.";
+
+  stbody.innerHTML = (result.summary || []).map(r => {
+    const isOk  = r.status.includes("✓") || r.status === "Duplicate";
+    const cls   = isOk ? "badge-done" : "badge-error";
+    return `<tr><td>${esc(r.candidate)}</td>
+            <td><span class="badge ${cls}">${esc(r.status)}</span></td></tr>`;
+  }).join("");
+
+  panel.style.display = "block";
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// ── Clear ─────────────────────────────────────────────────────────────────
+clearBtn.addEventListener("click", () => {
+  rows = []; renderTable(); updateButtons();
+  document.getElementById("summary-panel").style.display = "none";
+  setStatus("");
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────
+loadJRMaster();
+updateButtons();
+</script>
+</body>
+</html>

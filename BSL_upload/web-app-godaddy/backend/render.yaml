@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: sap-resume-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    plan: free
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GH_REPO
+        sync: false
+      - key: GH_TOKEN
+        sync: false
+      - key: GH_EVENT_TYPE
+        value: resume-form-submitted
+      - key: FLASK_ENV
+        value: production
+      - key: ALLOWED_ORIGINS
+        sync: false
