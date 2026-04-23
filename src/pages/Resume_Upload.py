@@ -101,6 +101,20 @@ GH_REPO  = st.secrets.get("GH_REPO",  os.environ.get("GH_REPO", ""))
 GH_TOKEN = st.secrets.get("GH_TOKEN", os.environ.get("GH_TOKEN", ""))
 GH_EVENT = st.secrets.get("GH_EVENT_TYPE", "resume-form-submitted")
 
+# ── Load external recruiter email suggestions ────────────────────────────────
+@st.cache_data(ttl=600)
+def _load_external_recruiters() -> list[str]:
+    """Read recruiter email suggestions from external_recruiters.txt in the project root."""
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    txt_path = os.path.join(root_dir, "external_recruiters.txt")
+    if not os.path.exists(txt_path):
+        return []
+    with open(txt_path, "r", encoding="utf-8") as fh:
+        emails = [line.strip().lower() for line in fh if line.strip() and "@" in line]
+    return sorted(set(emails))
+
+EXTERNAL_RECRUITERS = _load_external_recruiters()
+
 # ── Load JR master (active only) ────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def _load_jr_master():
@@ -183,6 +197,52 @@ def trigger_github_workflow(record_ids: list, recruiter_email: str) -> tuple[boo
     return False, f"GitHub {resp.status_code}: {resp.text}"
 
 
+# ── Recruiter email widget with suggestions ──────────────────────────────────
+_MANUAL_OPTION = "✏️ Type manually…"
+
+def recruiter_email_widget(default_email: str) -> str:
+    """
+    Render a recruiter-email picker.
+    - If external_recruiters.txt has entries: show a selectbox with those emails
+      + a "Type manually" escape hatch that reveals a text_input.
+    - If the file is empty / missing: fall back to a plain text_input (original behaviour).
+
+    Returns the final email string (stripped, lowercase).
+    """
+    if not EXTERNAL_RECRUITERS:
+        # No suggestions available — plain text input (original behaviour)
+        return st.text_input(
+            "Recruiter Email ID",
+            value=default_email,
+            help="Your email to receive SAP upload notifications.",
+        ).strip().lower()
+
+    # Build dropdown options
+    options = EXTERNAL_RECRUITERS + [_MANUAL_OPTION]
+
+    # Pre-select the logged-in user's email if it's already in the list
+    default_idx = 0
+    if default_email and default_email.lower() in EXTERNAL_RECRUITERS:
+        default_idx = EXTERNAL_RECRUITERS.index(default_email.lower())
+
+    selected = st.selectbox(
+        "Recruiter Email ID",
+        options=options,
+        index=default_idx,
+        help="Select from known recruiters or choose '✏️ Type manually…' to enter a different address.",
+    )
+
+    if selected == _MANUAL_OPTION:
+        custom = st.text_input(
+            "Enter recruiter email",
+            value=default_email if default_email not in EXTERNAL_RECRUITERS else "",
+            placeholder="someone@example.com",
+        )
+        return custom.strip().lower()
+
+    return selected.strip().lower()
+
+
 # ── Session state ───────────────────────────────────────────────────────────
 if "upload_rows" not in st.session_state:
     st.session_state.upload_rows = []
@@ -203,12 +263,8 @@ with col_jr:
     skill   = _safe(jr_meta.get("skill_name") or jr_meta.get("skill", ""))
 
 with col_email:
-    default_email = " " if is_public else user.get("email", "")
-    recruiter_email = st.text_input(
-        "Recruiter Email ID",
-        value=default_email,
-        help="Your email to receive SAP upload notifications.",
-    )
+    default_email = "" if is_public else user.get("email", "")
+    recruiter_email = recruiter_email_widget(default_email)
 
 # Display skill and job details in next line (collapsible)
 if jr_no and jr_meta:
