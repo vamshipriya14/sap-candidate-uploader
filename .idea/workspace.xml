@@ -5,7 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="b78e4a73-3b2e-4cbb-82c5-d65210f4b63b" name="Changes" comment="web_hosting">
-      <change beforePath="$PROJECT_DIR$/BSL_upload/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/BSL_upload/index.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -81,7 +81,7 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1776906421672</updated>
-      <workItem from="1776906431557" duration="5633000" />
+      <workItem from="1776906431557" duration="9407000" />
     </task>
     <task id="LOCAL-00001" summary="web_hosting">
       <option name="closed" value="true" />
@@ -115,7 +115,15 @@
       <option name="project" value="LOCAL" />
       <updated>1776911085737</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="web_hosting">
+      <option name="closed" value="true" />
+      <created>1776913580529</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1776913580529</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
