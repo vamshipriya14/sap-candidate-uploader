@@ -211,13 +211,15 @@ def recruiter_email_widget(_suggestions: list = None, default_email: str = "") -
             help="Your email to receive SAP upload notifications.",
         ).strip().lower()
 
-    # Pre-select logged-in user's email if it's in the list, else default to first
-    default_idx = suggestions.index(email_lower) if email_lower in suggestions else 0
+    # Pre-select logged-in user's email if it's in the list, else show blank
+    options = [""] + suggestions
+    default_idx = options.index(email_lower) if email_lower in options else 0
 
     selected = st.selectbox(
         "Recruiter Email ID",
-        options=suggestions,
+        options=options,
         index=default_idx,
+        format_func=lambda x: "— select —" if x == "" else x,
         help="Select your email to receive SAP upload notifications.",
     )
     return selected.strip().lower()
