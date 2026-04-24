@@ -38,6 +38,10 @@ def extract_text(file):
                 for cell in row.cells:
                     text += cell.text + "\n"
 
+    # Strip private-use Unicode characters (e.g. Wingdings/symbol bullets like \uf097)
+    # These appear as line separators in some PDFs and cause lines to merge incorrectly.
+    text = re.sub(r'[\ue000-\uf8ff]', '\n', text)
+
     return text
 
 
@@ -98,6 +102,11 @@ def extract_email(text):
     text = re.sub(r'(\S+)\s*@\s*(\S+)', r'\1@\2', text)
     text = re.sub(r'(\S+)\s*\.\s*(\S+)', r'\1.\2', text)
 
+    # Fix OCR misreads: comma instead of dot inside email-like patterns
+    # e.g. "sureshchandra,ide@gmail.com" -> "sureshchandra.ide@gmail.com"
+    text = re.sub(r'(\w),(\w+@)', r'\1.\2', text)          # comma before @
+    text = re.sub(r'(@[A-Za-z0-9\-]+),([A-Za-z]{2,})', r'\1.\2', text)  # comma in domain
+
     emails = re.findall(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', text)
 
     return emails[0] if emails else ""
@@ -146,7 +155,12 @@ INVALID_WORDS = {
     "experience", "business", "operations", "management", "core",
     "competencies", "personal", "details", "id", "objective",
     "education", "contact", "address", "declaration", "references",
-    "linkedin", "github", "portfolio"
+    "linkedin", "github", "portfolio",
+    # Common resume section headers and filler words that are not names
+    "trained", "secondary", "module", "technical", "current", "past",
+    "present", "from", "to", "date", "with", "at", "in", "for", "of",
+    "and", "the", "by", "as", "on", "an", "or", "is", "was", "are",
+    "has", "have", "had", "been", "be", "do", "does", "did",
 }
 
 def extract_name(text, email=None):
@@ -158,6 +172,8 @@ def extract_name(text, email=None):
         line = re.sub(r'\S+@\S+', '', line)               # remove emails
         line = re.sub(r'\+?\d[\d\s\-]{8,}', '', line)     # remove phone numbers
         line = re.sub(r'(?i)\b(email|mail|contact|phone|mobile)\b[:\-]*', '', line)
+        # Split CamelCase single tokens (e.g. "GoureshMathapathi" → "Gouresh Mathapathi")
+        line = re.sub(r'([a-z])([A-Z])', r'\1 \2', line)
         line = re.sub(r'[^\w\s]', ' ', line)
         return re.sub(r'\s+', ' ', line).strip()
 
