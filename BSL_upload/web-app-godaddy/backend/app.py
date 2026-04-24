@@ -30,6 +30,21 @@ app = Flask(__name__)
 # Allow requests from any origin (GoDaddy subdomain will call this)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
+# Ensure CORS headers are present on ALL responses, including errors
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    resp = jsonify({"error": str(e), "trace": traceback.format_exc()})
+    resp.status_code = 500
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    return resp
+
 # ─── Config ─────────────────────────────────────────────────────────────────
 SUPABASE_URL   = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY   = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
