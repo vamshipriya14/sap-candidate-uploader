@@ -373,12 +373,12 @@ if st.session_state.upload_rows:
             merged.append({
                 **internal,
                 "Candidate Name": full_name,
-                "Email ID":       _safe(edited.get("Email ID",       internal["Email ID"])),
+                "Email ID": _safe(edited.get("Email ID", internal["Email ID"])),
                 "Contact Number": _safe(edited.get("Contact Number", internal["Contact Number"])),
-                "_first":         first_name,
-                "_last":          last_name,
+                "Recruiter Email": recruiter_email,  # ✅ add this line
+                "_first": first_name,
+                "_last": last_name,
             })
-
         missing_rows = _missing_required_rows(merged)
         if missing_rows:
             st.error(
