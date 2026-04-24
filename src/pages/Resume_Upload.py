@@ -149,14 +149,16 @@ def _missing_required_rows(rows: list[dict]) -> list[str]:
             missing.append("Contact Number")
         if not _safe(row.get("Resume File")) or not row.get("_file_bytes"):
             missing.append("Resume File")
+
+        # ✅ Define label BEFORE any block that references it
+        label = _safe(row.get("Resume File")) or f"row {idx + 1}"
+
         if missing:
-            label = _safe(row.get("Resume File")) or f"row {idx + 1}"
             missing_rows.append(f"{label}: {', '.join(missing)}")
         if not _safe(row.get("Recruiter Email")):
             missing_rows.append(f"{label}: Recruiter Email ID")
 
     return missing_rows
-
 
 def _extract_name_from_email(email: str) -> str:
     """Extract a display name from an email: john.doe@company.com → John Doe"""
