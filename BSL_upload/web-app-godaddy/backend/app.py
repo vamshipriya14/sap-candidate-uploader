@@ -23,6 +23,13 @@ import docx as python_docx
 import spacy
 import phonenumbers
 
+try:
+    import pytesseract
+    import pypdfium2 as pdfium
+except Exception:
+    pytesseract = None
+    pdfium = None
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -51,7 +58,7 @@ SUPABASE_KEY   = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 GH_REPO        = os.getenv("GH_REPO", "")
 GH_TOKEN       = os.getenv("GH_TOKEN", "")
 GH_EVENT       = os.getenv("GH_EVENT_TYPE", "resume-form-submitted")
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")  # e.g. "https://upload.yourdomain.com"
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")
 
 try:
     nlp = spacy.load("en_core_web_sm")
@@ -72,14 +79,19 @@ def _headers(is_binary=False):
     return h
 
 
-# ─── Resume Parser (same logic as src/resume_parser.py) ─────────────────────
+# ─── Resume Parser ───────────────────────────────────────────────────────────
 
 INVALID_WORDS = {
     "resume", "cv", "professional", "summary", "profile", "skills",
     "experience", "business", "operations", "management", "core",
     "competencies", "personal", "details", "id", "objective",
     "education", "contact", "address", "declaration", "references",
-    "linkedin", "github", "portfolio"
+    "linkedin", "github", "portfolio",
+    # Common resume section headers and filler words that are not names
+    "trained", "secondary", "module", "technical", "current", "past",
+    "present", "from", "to", "date", "with", "at", "in", "for", "of",
+    "and", "the", "by", "as", "on", "an", "or", "is", "was", "are",
+    "has", "have", "had", "been", "be", "do", "does", "did",
 }
 
 COUNTRY_MAP = {
@@ -101,7 +113,9 @@ def _extract_text_from_bytes(file_bytes: bytes, filename: str) -> str:
     if filename.lower().endswith(".pdf"):
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             for page in pdf.pages:
-                text += (page.extract_text() or "") + "\n"
+                # Use layout=True as fallback for better text extraction
+                page_text = page.extract_text() or page.extract_text(layout=True) or ""
+                text += page_text + "\n"
     elif filename.lower().endswith(".docx"):
         doc = python_docx.Document(io.BytesIO(file_bytes))
         for para in doc.paragraphs:
@@ -110,11 +124,68 @@ def _extract_text_from_bytes(file_bytes: bytes, filename: str) -> str:
             for row in table.rows:
                 for cell in row.cells:
                     text += cell.text + "\n"
+
+    # Strip private-use Unicode characters (e.g. Wingdings/symbol bullets like \uf097)
+    # These appear as line separators in some PDFs and cause lines to merge incorrectly.
+    text = re.sub(r'[\ue000-\uf8ff]', '\n', text)
+
     return text
 
 
+def _should_try_ocr(text: str) -> bool:
+    stripped = re.sub(r"\s+", " ", str(text or "")).strip()
+    return len(stripped) < 50
+
+
+def _extract_text_via_ocr(file_bytes: bytes, filename: str) -> str:
+    """OCR fallback for image-based PDFs using pytesseract + pypdfium2."""
+    if pytesseract is None or pdfium is None:
+        return ""
+    if not filename.lower().endswith(".pdf"):
+        return ""
+    try:
+        pdf = pdfium.PdfDocument(file_bytes)
+        parts = []
+        max_pages = min(len(pdf), 5)
+        for index in range(max_pages):
+            page = pdf[index]
+            bitmap = page.render(scale=2.0)
+            image = bitmap.to_pil()
+            text = pytesseract.image_to_string(image) or ""
+            if text.strip():
+                parts.append(text)
+        return "\n".join(parts).strip()
+    except Exception:
+        return ""
+
+
+def _extract_name_from_filename(file_name: str):
+    """Last-resort name extraction from the filename itself."""
+    base = re.sub(r"\.[^.]+$", "", str(file_name or "").strip())
+    base = re.sub(r"[_\-]+", " ", base)
+    base = re.sub(r"\s+", " ", base).strip()
+    words = [w for w in re.split(r"\s+", base) if w]
+    words = [w for w in words if w.isalpha() and w.lower() not in INVALID_WORDS]
+    if not words:
+        return "", ""
+    if len(words) == 1:
+        return words[0].capitalize(), ""
+    pretty = [w.capitalize() for w in words[:4]]
+    return " ".join(pretty[:-1]), pretty[-1]
+
+
 def _extract_email(text: str) -> str:
+    # Fix broken emails split across lines or spaces
+    text = re.sub(r'(\w+)\.\s*\n\s*(\w+@)', r'\1.\2', text)
+
+    # Normalize spaces around @ and .
     text = re.sub(r'(\S+)\s*@\s*(\S+)', r'\1@\2', text)
+    text = re.sub(r'(\S+)\s*\.\s*(\S+)', r'\1.\2', text)
+
+    # Fix OCR misreads: comma instead of dot inside email-like patterns
+    text = re.sub(r'(\w),(\w+@)', r'\1.\2', text)           # comma before @
+    text = re.sub(r'(@[A-Za-z0-9\-]+),([A-Za-z]{2,})', r'\1.\2', text)  # comma in domain
+
     emails = re.findall(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', text)
     return emails[0] if emails else ""
 
@@ -135,11 +206,15 @@ def _extract_country(phone: str):
 
 def _extract_name(text: str, email: str = None):
     lines = [l.strip() for l in text.split("\n") if l.strip()]
+    if not lines:
+        return "", "", "low"
 
     def clean_line(line):
-        line = re.sub(r'\S+@\S+', '', line)
-        line = re.sub(r'\+?\d[\d\s\-]{8,}', '', line)
+        line = re.sub(r'\S+@\S+', '', line)               # remove emails
+        line = re.sub(r'\+?\d[\d\s\-]{8,}', '', line)     # remove phone numbers
         line = re.sub(r'(?i)\b(email|mail|contact|phone|mobile)\b[:\-]*', '', line)
+        # Split CamelCase single tokens (e.g. "GoureshMathapathi" → "Gouresh Mathapathi")
+        line = re.sub(r'([a-z])([A-Z])', r'\1 \2', line)
         line = re.sub(r'[^\w\s]', ' ', line)
         return re.sub(r'\s+', ' ', line).strip()
 
@@ -210,10 +285,27 @@ def _extract_name(text: str, email: str = None):
 
 def parse_resume_bytes(file_bytes: bytes, filename: str) -> dict:
     text = _extract_text_from_bytes(file_bytes, filename)
+
+    # OCR fallback for image-based PDFs
+    if _should_try_ocr(text):
+        ocr_text = _extract_text_via_ocr(file_bytes, filename)
+        if len(ocr_text.strip()) > len(text.strip()):
+            text = ocr_text
+
+    # Fix broken words split across newlines (common in PDFs)
+    text = re.sub(r'(\S)\n(\S)', r'\1 \2', text)
+
     email = _extract_email(text)
     first, last, confidence = _extract_name(text, email)
     phone = _extract_phone(text)
     code, country = _extract_country(phone)
+
+    # Filename fallback if name extraction failed
+    if not first and not last:
+        first, last = _extract_name_from_filename(filename)
+        if first or last:
+            confidence = "low"
+
     return {
         "first_name":   first,
         "last_name":    last,
@@ -241,7 +333,11 @@ def _jr_folder(jr_no: str) -> str:
 
 @app.route("/api/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "nlp_loaded": NLP_LOADED})
+    return jsonify({
+        "status": "ok",
+        "nlp_loaded": NLP_LOADED,
+        "ocr_available": pytesseract is not None and pdfium is not None,
+    })
 
 
 @app.route("/api/jr-master", methods=["GET"])
@@ -265,12 +361,15 @@ def get_jr_master():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/parse-resume", methods=["POST"])
+@app.route("/api/parse-resume", methods=["POST", "OPTIONS"])
 def parse_resume_endpoint():
     """
     Parse a resume file (PDF/DOCX) using the real Python parser.
     Returns: first_name, last_name, email, phone, country, confidence
     """
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
     f = request.files["file"]
@@ -291,9 +390,12 @@ def parse_resume_endpoint():
                         "email": "", "phone": "", "confidence": "low"}), 200
 
 
-@app.route("/api/upload-resume", methods=["POST"])
+@app.route("/api/upload-resume", methods=["POST", "OPTIONS"])
 def upload_resume():
     """Upload resume file to Supabase Storage."""
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+
     if not SUPABASE_URL or not SUPABASE_KEY:
         return jsonify({"error": "Supabase not configured"}), 500
 
@@ -314,7 +416,6 @@ def upload_resume():
         resp = requests.post(url, headers=_headers(is_binary=True), data=file_bytes, timeout=30)
 
         if resp.status_code == 409:
-            # Already exists — path is still correct
             return jsonify({"path": file_path, "existed": True}), 200
         if resp.status_code not in (200, 201):
             return jsonify({"error": f"Storage upload failed: {resp.text}"}), 400
@@ -324,9 +425,12 @@ def upload_resume():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/check-duplicate", methods=["POST"])
+@app.route("/api/check-duplicate", methods=["POST", "OPTIONS"])
 def check_duplicate():
     """Check if a candidate already exists for a given JR."""
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+
     if not SUPABASE_URL or not SUPABASE_KEY:
         return jsonify({"exists": False}), 200
     try:
@@ -353,9 +457,12 @@ def check_duplicate():
         return jsonify({"exists": False, "error": str(e)}), 200
 
 
-@app.route("/api/submit-candidates", methods=["POST"])
+@app.route("/api/submit-candidates", methods=["POST", "OPTIONS"])
 def submit_candidates():
     """Insert candidate records into Supabase and trigger GitHub workflow."""
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+
     if not SUPABASE_URL or not SUPABASE_KEY:
         return jsonify({"error": "Supabase not configured"}), 500
 
