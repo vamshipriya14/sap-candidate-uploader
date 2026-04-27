@@ -114,80 +114,18 @@
     }
     .field input::placeholder { color: #b0b8c4; }
 
-    /* ── JR Info Panel ───────────────────────────────────────────────── */
+    /* ── JR Info Banner ──────────────────────────────────────────────── */
     #jr-info {
       display: none;
+      background: #eff6ff;
+      border-left: 3px solid var(--accent);
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: #1e40af;
       margin-bottom: 1rem;
     }
-
-    .skill-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      border-radius: 7px;
-      padding: 9px 14px;
-      font-size: 13.5px;
-      color: #1e3a8a;
-      margin-bottom: 10px;
-    }
-    .skill-badge .skill-label {
-      font-weight: 700;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: .06em;
-      color: #3b82f6;
-      margin-right: 2px;
-    }
-    .skill-badge .skill-value {
-      font-weight: 600;
-      color: #1e3a8a;
-    }
-
-    /* Collapsible job details */
-    .jd-expander {
-      border: 1px solid var(--border);
-      border-radius: 7px;
-      overflow: hidden;
-    }
-    .jd-toggle {
-      width: 100%;
-      background: var(--light);
-      border: none;
-      padding: 9px 14px;
-      text-align: left;
-      font-family: var(--font);
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text);
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      transition: background .12s;
-    }
-    .jd-toggle:hover { background: #f1f5f9; }
-    .jd-toggle .jd-arrow {
-      font-size: 11px;
-      color: var(--muted);
-      transition: transform .2s;
-    }
-    .jd-toggle.open .jd-arrow { transform: rotate(90deg); }
-    .jd-body {
-      display: none;
-      padding: 12px 14px;
-      font-size: 13px;
-      line-height: 1.65;
-      color: #374151;
-      border-top: 1px solid var(--border);
-      background: #fff;
-      white-space: pre-wrap;
-      word-break: break-word;
-      max-height: 320px;
-      overflow-y: auto;
-    }
-    .jd-body.open { display: block; }
+    #jr-info strong { font-weight: 600; }
 
     /* ── Drop Zone ───────────────────────────────────────────────────── */
     .drop-zone {
@@ -439,20 +377,7 @@
         <input type="email" id="recruiterEmail" placeholder="your.email@company.com" />
       </div>
     </div>
-    <!-- Shown after JR is selected -->
-    <div id="jr-info" style="display:none;">
-      <div class="skill-badge">
-        <span class="skill-label">Skill</span>
-        <span class="skill-value" id="jr-skill">—</span>
-      </div>
-      <div class="jd-expander">
-        <button class="jd-toggle" id="jd-toggle" type="button" onclick="toggleJD()">
-          <span>📋 Job Details</span>
-          <span class="jd-arrow">▶</span>
-        </button>
-        <div class="jd-body" id="jd-body"></div>
-      </div>
-    </div>
+    <div id="jr-info"></div>
   </div>
 
   <!-- Step 2: Upload -->
@@ -543,7 +468,9 @@
 // ╔══════════════════════════════════════════════════════════════╗
 // ║  CONFIGURATION — set API_BASE to your Render.com backend URL ║
 // ╚══════════════════════════════════════════════════════════════╝
-const API_BASE = "https://sap-candidate-uploader.onrender.com";   // e.g. https://sap-resume-api.onrender.com
+// Replace %%BACKEND_URL%% with your Render.com backend URL, e.g.:
+//   const API_BASE = "https://sap-resume-api.onrender.com";
+const API_BASE = ("%%BACKEND_URL%%").replace(/\/+$/, "");
 // ──────────────────────────────────────────────────────────────
 
 let rows     = [];
@@ -701,38 +628,15 @@ async function loadJRMaster() {
 jrSelect.addEventListener("change", () => {
   const jr   = jrMaster[jrSelect.value];
   const info = document.getElementById("jr-info");
-  if (jr && jrSelect.value) {
-    // Skill badge
-    document.getElementById("jr-skill").textContent =
-      (jr.skill_name || jr.skill || "—").trim();
-
-    // Job details body — full text, no truncation
-    const jdBody = document.getElementById("jd-body");
-    jdBody.textContent = (jr.job_details || "No details available.").trim();
-
-    // Reset expander to closed state whenever JR changes
-    const toggle = document.getElementById("jd-toggle");
-    toggle.classList.remove("open");
-    jdBody.classList.remove("open");
-
+  if (jr) {
+    const skill   = esc(jr.skill_name || "—");
+    const details = esc((jr.job_details || "No details").substring(0, 120));
+    info.innerHTML = `<strong>Skill:</strong> ${skill}&nbsp;&nbsp;·&nbsp;&nbsp;<strong>Details:</strong> ${details}…`;
     info.style.display = "block";
   } else {
     info.style.display = "none";
-    // Reset
-    const toggle = document.getElementById("jd-toggle");
-    const jdBody = document.getElementById("jd-body");
-    toggle.classList.remove("open");
-    jdBody.classList.remove("open");
   }
 });
-
-function toggleJD() {
-  const toggle = document.getElementById("jd-toggle");
-  const body   = document.getElementById("jd-body");
-  const isOpen = toggle.classList.contains("open");
-  toggle.classList.toggle("open", !isOpen);
-  body.classList.toggle("open", !isOpen);
-}
 
 // ── Parse All (server-side via /api/parse-resume) ─────────────────────────
 parseBtn.addEventListener("click", async () => {

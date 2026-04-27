@@ -33,9 +33,10 @@ except Exception:
 load_dotenv()
 
 app = Flask(__name__)
+app.url_map.strict_slashes = False   # treat /api/foo and /api/foo/ as the same
 
 # Allow requests from any origin (GoDaddy subdomain will call this)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Ensure CORS headers are present on ALL responses, including errors
 @app.after_request
@@ -47,8 +48,15 @@ def add_cors_headers(response):
 
 @app.errorhandler(Exception)
 def handle_exception(e):
-    resp = jsonify({"error": str(e), "trace": traceback.format_exc()})
-    resp.status_code = 500
+    from werkzeug.exceptions import HTTPException
+    status = e.code if isinstance(e, HTTPException) else 500
+    resp = jsonify({
+        "error":        str(e),
+        "requested_url": request.url,      # helps debug wrong-path issues
+        "method":       request.method,
+        "trace":        traceback.format_exc() if status == 500 else None,
+    })
+    resp.status_code = status
     resp.headers["Access-Control-Allow-Origin"] = "*"
     return resp
 
@@ -331,8 +339,15 @@ def _jr_folder(jr_no: str) -> str:
 
 # ─── Routes ─────────────────────────────────────────────────────────────────
 
-@app.route("/api/health", methods=["GET"])
+@app.route("/", methods=["GET"])
+def root():
+    return jsonify({"status": "ok", "message": "SAP Resume API is running. Use /api/health for details."})
+
+
+@app.route("/api/health", methods=["GET", "OPTIONS"])
 def health():
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
     return jsonify({
         "status": "ok",
         "nlp_loaded": NLP_LOADED,
