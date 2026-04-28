@@ -148,22 +148,37 @@ def _should_try_ocr(text: str) -> bool:
 def _extract_text_via_ocr(file_bytes: bytes, filename: str) -> str:
     """OCR fallback for image-based PDFs using pytesseract + pypdfium2."""
     if pytesseract is None or pdfium is None:
+        print("[OCR] pytesseract or pypdfium2 not available — skipping OCR")
         return ""
     if not filename.lower().endswith(".pdf"):
+        return ""
+    # Verify tesseract binary exists before attempting OCR
+    try:
+        import subprocess
+        subprocess.run(["tesseract", "--version"], capture_output=True, check=True)
+    except Exception as te:
+        print(f"[OCR] tesseract binary not found: {te}")
         return ""
     try:
         pdf = pdfium.PdfDocument(file_bytes)
         parts = []
-        max_pages = min(len(pdf), 5)
+        max_pages = min(len(pdf), 7)   # process all pages (increased from 5)
         for index in range(max_pages):
             page = pdf[index]
-            bitmap = page.render(scale=2.0)
+            bitmap = page.render(scale=2.5)   # higher DPI → better accuracy
             image = bitmap.to_pil()
-            text = pytesseract.image_to_string(image) or ""
+            text = pytesseract.image_to_string(
+                image,
+                config="--psm 1 --oem 3"   # auto page-seg + LSTM engine
+            ) or ""
             if text.strip():
                 parts.append(text)
-        return "\n".join(parts).strip()
-    except Exception:
+        result = "\n".join(parts).strip()
+        print(f"[OCR] extracted {len(result)} chars from {filename}")
+        return result
+    except Exception as e:
+        print(f"[OCR] failed for {filename}: {e}")
+        traceback.print_exc()
         return ""
 
 
